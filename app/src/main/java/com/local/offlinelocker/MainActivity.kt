@@ -3,7 +3,6 @@ package com.local.offlinelocker
 import android.app.Activity
 import android.app.AlertDialog
 import android.content.Intent
-import android.content.pm.ApplicationInfo
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.Drawable
@@ -32,7 +31,7 @@ class MainActivity : Activity() {
 
     private var showingLockedOnly = false
     private var searchQuery = ""
-    private var allUserApps: List<AppEntry> = emptyList()
+    private var allLaunchableApps: List<AppEntry> = emptyList()
     private var displayedApps: List<AppEntry> = emptyList()
     private val bannerHandler = Handler(Looper.getMainLooper())
 
@@ -46,8 +45,12 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         storage = LockStorage(this)
 
-        allUserApps = packageManager.getInstalledApplications(0)
-            .filter { (it.flags and ApplicationInfo.FLAG_SYSTEM) == 0 && it.packageName != packageName }
+        // Include ALL launchable user + pre-installed system apps (YouTube, Photos, Chrome, etc.)
+        allLaunchableApps = packageManager.getInstalledApplications(0)
+            .filter {
+                it.packageName != packageName &&
+                    packageManager.getLaunchIntentForPackage(it.packageName) != null
+            }
             .map {
                 AppEntry(
                     name = packageManager.getApplicationLabel(it).toString(),
@@ -58,7 +61,7 @@ class MainActivity : Activity() {
             .sortedBy { it.name.lowercase() }
 
         val rootFrame = FrameLayout(this).apply {
-            setBackgroundColor(Color.parseColor("#0B1120")) // Deep Obsidian Slate
+            setBackgroundColor(Color.parseColor("#0B1120"))
         }
 
         val mainColumn = LinearLayout(this).apply {
@@ -69,11 +72,16 @@ class MainActivity : Activity() {
             )
         }
 
-        // ================= 1. MIDNIGHT SLATE & EMERALD HEADER =================
+        // Calculate safe status-bar height + generous extra top margin so Settings icon is easy to tap
+        val statusBarResId = resources.getIdentifier("status_bar_height", "dimen", "android")
+        val statusBarHeight = if (statusBarResId > 0) resources.getDimensionPixelSize(statusBarResId) else 80
+        val safeTopPadding = statusBarHeight + 56
+
+        // ================= 1. HEADER WITH GENEROUS TOP MARGIN =================
         val header = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(40, 52, 32, 36)
+            setPadding(40, safeTopPadding, 36, 36)
             background = GradientDrawable(
                 GradientDrawable.Orientation.LEFT_RIGHT,
                 intArrayOf(Color.parseColor("#0F172A"), Color.parseColor("#1E293B"))
@@ -121,7 +129,8 @@ class MainActivity : Activity() {
                 shape = GradientDrawable.OVAL
                 setColor(Color.parseColor("#334155"))
             }
-            setPadding(22, 22, 22, 22)
+            setPadding(28, 28, 28, 28)
+            layoutParams = LinearLayout.LayoutParams(108, 108)
             contentDescription = "Settings"
             setOnClickListener { openSettingsDialog() }
         }
@@ -137,7 +146,7 @@ class MainActivity : Activity() {
         }
 
         tabAllBtn = Button(this).apply {
-            text = "All Apps"
+            text = "All Apps (${allLaunchableApps.size})"
             typeface = Typeface.DEFAULT_BOLD
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
                 rightMargin = 10
@@ -167,7 +176,7 @@ class MainActivity : Activity() {
 
         // ================= 3. SEARCH BAR =================
         val searchBox = EditText(this).apply {
-            hint = "Search installed apps..."
+            hint = "Search YouTube, Photos, or any app..."
             setSingleLine(true)
             setPadding(36, 24, 36, 24)
             setTextColor(Color.parseColor("#F8FAFC"))
@@ -209,7 +218,7 @@ class MainActivity : Activity() {
         val footer = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
-            setPadding(28, 24, 28, 28)
+            setPadding(28, 24, 28, 36)
             background = GradientDrawable().apply {
                 setColor(Color.parseColor("#0F172A"))
             }
@@ -246,7 +255,7 @@ class MainActivity : Activity() {
                 FrameLayout.LayoutParams.WRAP_CONTENT,
                 Gravity.TOP
             ).apply {
-                setMargins(36, 56, 36, 0)
+                setMargins(36, safeTopPadding + 16, 36, 0)
             }
         }
 
@@ -312,14 +321,14 @@ class MainActivity : Activity() {
     private fun updateFooter() {
         val count = storage.getLockedApps().size
         val timeout = storage.relockTimeoutSeconds
-        val timeLabel = if (timeout == 0) "Instant" else "${timeout}s idle"
+        val timeLabel = if (timeout == 0) "On Exit (0s)" else "${timeout}s idle"
         val mode = storage.getAuthType().name
-        footerText.text = "$count Locked  •  $mode  •  Auto-Relock: $timeLabel"
+        footerText.text = "$count Locked  •  $mode  •  Relock: $timeLabel"
     }
 
     private fun refreshAppList() {
         val lockedSet = storage.getLockedApps()
-        displayedApps = allUserApps.filter { app ->
+        displayedApps = allLaunchableApps.filter { app ->
             val matchesTab = if (showingLockedOnly) lockedSet.contains(app.packageName) else true
             val matchesSearch = if (searchQuery.isEmpty()) true else app.name.lowercase().contains(searchQuery)
             matchesTab && matchesSearch
@@ -407,7 +416,7 @@ class MainActivity : Activity() {
         }
     }
 
-    // ================= SETTINGS DIALOG (WITH INTERACTIVE 3X3 PATTERN SETUP) =================
+    // ================= SETTINGS DIALOG =================
     private fun openSettingsDialog() {
         val scroll = ScrollView(this)
         val container = LinearLayout(this).apply {
@@ -452,7 +461,6 @@ class MainActivity : Activity() {
             )
         }
 
-        // Text box container (for PIN / Password)
         val textCredentialBox = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             layoutParams = LinearLayout.LayoutParams(
@@ -490,7 +498,6 @@ class MainActivity : Activity() {
         textCredentialBox.addView(secretInput)
         textCredentialBox.addView(saveSecretBtn)
 
-        // Interactive 3x3 Pattern Grid container (for PATTERN mode)
         val patternSetupBox = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
@@ -529,8 +536,25 @@ class MainActivity : Activity() {
             }
         }
 
+        val hidePatternSwitch = Switch(this).apply {
+            text = "Hide Pattern Path (Invisible lines while drawing)"
+            isChecked = storage.isPatternHidden
+            setPadding(0, 16, 0, 8)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            setOnCheckedChangeListener { _, checked ->
+                storage.isPatternHidden = checked
+                showAnimatedNotification(
+                    if (checked) "Pattern Path Hidden" else "Pattern Path Visible"
+                )
+            }
+        }
+
         patternSetupBox.addView(patternPromptText)
         patternSetupBox.addView(patternSetupView)
+        patternSetupBox.addView(hidePatternSwitch)
 
         authSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, pos: Int, id: Long) {
@@ -553,9 +577,8 @@ class MainActivity : Activity() {
             override fun onNothingSelected(parent: AdapterView<*>?) {}
         }
 
-        // Auto-Relock Timer
         val timerOptions = listOf(
-            "Immediately (0 sec)" to 0,
+            "Immediately on Exit / Background (0 sec)" to 0,
             "After 15 seconds" to 15,
             "After 30 seconds" to 30,
             "After 1 minute" to 60,
@@ -564,7 +587,7 @@ class MainActivity : Activity() {
         )
 
         val timerLabel = TextView(this).apply {
-            text = "\n3. Auto-Relock After Inactivity:"
+            text = "\n3. Auto-Relock Timing:"
             typeface = Typeface.DEFAULT_BOLD
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -594,13 +617,12 @@ class MainActivity : Activity() {
                     }
                     storage.relockTimeoutSeconds = timerOptions[pos].second
                     updateFooter()
-                    showAnimatedNotification("Auto-Relock: ${timerOptions[pos].first}", "#38BDF8", "#0B1120")
+                    showAnimatedNotification("Relock: ${timerOptions[pos].first}", "#38BDF8", "#0B1120")
                 }
                 override fun onNothingSelected(parent: AdapterView<*>?) {}
             }
         }
 
-        // Native Lightweight Switches
         val bioSwitch = Switch(this).apply {
             text = "\nFingerprint Biometric Unlock"
             isChecked = storage.isFingerprintEnabled
