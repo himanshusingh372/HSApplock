@@ -48,6 +48,11 @@ class PatternLockView(context: Context) : View(context) {
         color = Color.parseColor("#10B981")
     }
 
+    init {
+        isClickable = true
+        isFocusable = true
+    }
+
     private fun getNodeCenter(index: Int): Pair<Float, Float> {
         val col = index % 3
         val row = index / 3
@@ -58,15 +63,20 @@ class PatternLockView(context: Context) : View(context) {
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val screenWidth = resources.displayMetrics.widthPixels
-        val defaultSize = (screenWidth * 0.76f).toInt()
-        val availableWidth = MeasureSpec.getSize(widthMeasureSpec)
-        val size = if (availableWidth > 0) availableWidth.coerceAtMost(defaultSize) else defaultSize
-        setMeasuredDimension(size, size)
+        val targetSize = (screenWidth * 0.74f).toInt()
+        val widthMode = MeasureSpec.getMode(widthMeasureSpec)
+        val widthSize = MeasureSpec.getSize(widthMeasureSpec)
+        val finalSize = when (widthMode) {
+            MeasureSpec.EXACTLY -> widthSize
+            MeasureSpec.AT_MOST -> targetSize.coerceAtMost(widthSize)
+            else -> targetSize
+        }
+        setMeasuredDimension(finalSize, finalSize)
     }
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        if (width == 0 || height == 0) return
+        if (width <= 0 || height <= 0) return
 
         if (!hidePattern) {
             for (i in 0 until selectedNodes.size - 1) {
@@ -84,15 +94,14 @@ class PatternLockView(context: Context) : View(context) {
         for (i in 0 until 9) {
             val (cx, cy) = getNodeCenter(i)
             val showActive = !hidePattern && selectedNodes.contains(i)
-            canvas.drawCircle(cx, cy, 52f, if (showActive) activeRingPaint else outerRingPaint)
-            canvas.drawCircle(cx, cy, if (showActive) 22f else 15f, if (showActive) activeDotPaint else dotPaint)
+            canvas.drawCircle(cx, cy, 48f, if (showActive) activeRingPaint else outerRingPaint)
+            canvas.drawCircle(cx, cy, if (showActive) 20f else 14f, if (showActive) activeDotPaint else dotPaint)
         }
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        when (event.action) {
+        when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                // Prevent ScrollView or parent containers from cancelling vertical drags after 2 dots
                 parent?.requestDisallowInterceptTouchEvent(true)
                 selectedNodes.clear()
                 isDrawing = true
@@ -110,7 +119,7 @@ class PatternLockView(context: Context) : View(context) {
                 invalidate()
                 return true
             }
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+            MotionEvent.ACTION_UP -> {
                 parent?.requestDisallowInterceptTouchEvent(false)
                 isDrawing = false
                 if (selectedNodes.isNotEmpty()) {
@@ -121,12 +130,19 @@ class PatternLockView(context: Context) : View(context) {
                 invalidate()
                 return true
             }
+            MotionEvent.ACTION_CANCEL -> {
+                parent?.requestDisallowInterceptTouchEvent(false)
+                isDrawing = false
+                selectedNodes.clear()
+                invalidate()
+                return true
+            }
         }
-        return super.onTouchEvent(event)
+        return true
     }
 
     private fun checkHit(x: Float, y: Float) {
-        val hitRadius = (width / 3f) * 0.38f
+        val hitRadius = (width / 3f) * 0.40f
         for (i in 0 until 9) {
             if (selectedNodes.contains(i)) continue
             val (cx, cy) = getNodeCenter(i)
