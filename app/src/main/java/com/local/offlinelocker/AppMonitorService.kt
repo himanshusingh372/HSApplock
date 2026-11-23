@@ -8,7 +8,7 @@ import android.view.accessibility.AccessibilityEvent
 class AppMonitorService : AccessibilityService() {
 
     private lateinit var storage: LockStorage
-    private var lastForegroundPackage: String = ""
+    private var activeUnlockedPackage: String? = null
 
     companion object {
         private val unlockedTimestamps = mutableMapOf<String, Long>()
@@ -34,25 +34,32 @@ class AppMonitorService : AccessibilityService() {
         if (event?.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
         val pkg = event.packageName?.toString() ?: return
 
+        // Ignore our own lock screen overlay and system UI notifications
         if (pkg == packageName || pkg == "com.android.systemui") return
 
-        if (lastForegroundPackage.isNotEmpty() &&
-            lastForegroundPackage != pkg &&
-            unlockedTimestamps.containsKey(lastForegroundPackage)
-        ) {
-            unlockedTimestamps[lastForegroundPackage] = SystemClock.elapsedRealtime()
+        // User left the currently unlocked app (went to Home, Recents, or another app)
+        if (activeUnlockedPackage != null && activeUnlockedPackage != pkg) {
+            val previousPkg = activeUnlockedPackage!!
+            if (storage.relockTimeoutSeconds <= 0) {
+                // Immediate relock: clear session as soon as app goes to background
+                unlockedTimestamps.remove(previousPkg)
+            } else {
+                // Record exact timestamp when user exited the app for inactivity timer
+                unlockedTimestamps[previousPkg] = SystemClock.elapsedRealtime()
+            }
+            activeUnlockedPackage = null
         }
-
-        lastForegroundPackage = pkg
 
         if (storage.getLockedApps().contains(pkg)) {
             val timeout = storage.relockTimeoutSeconds
             if (isWithinGracePeriod(pkg, timeout)) {
-                unlockedTimestamps[pkg] = SystemClock.elapsedRealtime()
+                activeUnlockedPackage = pkg
                 return
             }
 
             unlockedTimestamps.remove(pkg)
+            activeUnlockedPackage = null
+
             val intent = Intent(this, LockActivity::class.java).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
                 putExtra("TARGET_PACKAGE", pkg)
