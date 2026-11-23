@@ -5,6 +5,8 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.PixelFormat
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.hardware.camera2.CameraManager
 import android.os.Build
 import android.os.Handler
@@ -12,13 +14,12 @@ import android.os.Looper
 import android.os.SystemClock
 import android.provider.Settings
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
-import android.widget.FrameLayout
-import android.widget.ImageView
-import android.widget.LinearLayout
-import android.widget.TextView
+import android.widget.*
+import kotlin.math.abs
 
 class AppMonitorService : AccessibilityService() {
 
@@ -26,6 +27,8 @@ class AppMonitorService : AccessibilityService() {
     private var activeUnlockedPackage: String? = null
     private val idleHandler = Handler(Looper.getMainLooper())
     private var blurOverlayView: View? = null
+    private var floatingBubbleView: View? = null
+    private var gesturePadOverlayView: View? = null
 
     companion object {
         private val lastInteractionMap = mutableMapOf<String, Long>()
@@ -53,6 +56,10 @@ class AppMonitorService : AccessibilityService() {
                 false
             }
         }
+
+        fun refreshFloatingBubble() {
+            instance?.syncFloatingBubbleState()
+        }
     }
 
     private val idleCheckRunnable = object : Runnable {
@@ -79,13 +86,223 @@ class AppMonitorService : AccessibilityService() {
         super.onServiceConnected()
         instance = this
         storage = LockStorage(this)
+        syncFloatingBubbleState()
     }
 
+    // ================= FLOATING EDGE GESTURE BUBBLE =================
+    fun syncFloatingBubbleState() {
+        if (!storage.isFloatingGestureEnabled || !Settings.canDrawOverlays(this)) {
+            removeFloatingBubble()
+            return
+        }
+        if (floatingBubbleView != null) return
+
+        try {
+            val wm = getSystemService(WINDOW_SERVICE) as WindowManager
+            val params = WindowManager.LayoutParams(
+                116,
+                116,
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+                PixelFormat.TRANSLUCENT
+            ).apply {
+                gravity = Gravity.END or Gravity.CENTER_VERTICAL
+                x = 12
+                y = 0
+            }
+
+            val bubble = ImageView(this).apply {
+                setImageResource(android.R.drawable.ic_input_add)
+                setColorFilter(Color.parseColor("#38BDF8"))
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.OVAL
+                    setColor(Color.parseColor("#E60F172A"))
+                    setStroke(3, Color.parseColor("#38BDF8"))
+                }
+                setPadding(28, 28, 28, 28)
+                elevation = 14f
+            }
+
+            var initialY = 0
+            var initialTouchY = 0f
+            var moved = false
+
+            bubble.setOnTouchListener { _, event ->
+                when (event.action) {
+                    MotionEvent.ACTION_DOWN -> {
+                        initialY = params.y
+                        initialTouchY = event.rawY
+                        moved = false
+                        true
+                    }
+                    MotionEvent.ACTION_MOVE -> {
+                        val dy = (event.rawY - initialTouchY).toInt()
+                        if (abs(dy) > 12) moved = true
+                        params.y = initialY + dy
+                        try {
+                            wm.updateViewLayout(bubble, params)
+                        } catch (_: Exception) {
+                        }
+                        true
+                    }
+                    MotionEvent.ACTION_UP -> {
+                        if (!moved) {
+                            openFloatingGesturePad()
+                        }
+                        true
+                    }
+                    else -> false
+                }
+            }
+
+            floatingBubbleView = bubble
+            wm.addView(bubble, params)
+        } catch (_: Exception) {
+            floatingBubbleView = null
+        }
+    }
+
+    private fun removeFloatingBubble() {
+        try {
+            val wm = getSystemService(WINDOW_SERVICE) as WindowManager
+            floatingBubbleView?.let { wm.removeView(it) }
+        } catch (_: Exception) {
+        }
+        floatingBubbleView = null
+    }
+
+    // ================= GLOBAL OVERLAY GESTURE PAD =================
+    private fun openFloatingGesturePad() {
+        if (gesturePadOverlayView != null || !Settings.canDrawOverlays(this)) return
+
+        try {
+            val wm = getSystemService(WINDOW_SERVICE) as WindowManager
+            val params = WindowManager.LayoutParams(
+                WindowManager.LayoutParams.MATCH_PARENT,
+                WindowManager.LayoutParams.MATCH_PARENT,
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                WindowManager.LayoutParams.FLAG_BLUR_BEHIND,
+                PixelFormat.TRANSLUCENT
+            ).apply {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    blurBehindRadius = 70
+                }
+            }
+
+            val backdrop = FrameLayout(this).apply {
+                setBackgroundColor(Color.parseColor("#CC060B14"))
+                setOnClickListener { closeFloatingGesturePad() }
+            }
+
+            val card = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER_HORIZONTAL
+                setPadding(40, 40, 40, 40)
+                background = GradientDrawable().apply {
+                    setColor(Color.parseColor("#F2162032"))
+                    cornerRadius = 40f
+                    setStroke(2, Color.parseColor("#38BDF8"))
+                }
+                layoutParams = FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.WRAP_CONTENT,
+                    FrameLayout.LayoutParams.WRAP_CONTENT,
+                    Gravity.CENTER
+                )
+                setOnClickListener { /* prevent backdrop dismiss */ }
+            }
+
+            val title = TextView(this).apply {
+                text = "Draw Saved Hand Gesture"
+                textSize = 16f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(Color.parseColor("#F8FAFC"))
+                setPadding(0, 0, 0, 8)
+            }
+
+            val status = TextView(this).apply {
+                text = "Draw sign for Torch, Screenshot, or App"
+                textSize = 12f
+                setTextColor(Color.parseColor("#94A3B8"))
+                setPadding(0, 0, 0, 20)
+            }
+
+            val gestureCanvas = HandGestureView(this).apply {
+                onGestureDrawn = { signature ->
+                    val matched = storage.getAllGestureBindings().firstOrNull { it.signature == signature }
+                    if (matched != null) {
+                        closeFloatingGesturePad()
+                        executeGlobalGestureAction(matched.target, matched.label)
+                    } else {
+                        status.text = "No shortcut matched ($signature). Try again:"
+                        status.setTextColor(Color.parseColor("#F59E0B"))
+                        clearCanvas()
+                    }
+                }
+            }
+
+            val cancelBtn = Button(this).apply {
+                text = "Close"
+                setTextColor(Color.WHITE)
+                background = GradientDrawable().apply {
+                    setColor(Color.parseColor("#334155"))
+                    cornerRadius = 20f
+                }
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { topMargin = 20 }
+                setOnClickListener { closeFloatingGesturePad() }
+            }
+
+            card.addView(title)
+            card.addView(status)
+            card.addView(gestureCanvas)
+            card.addView(cancelBtn)
+            backdrop.addView(card)
+
+            gesturePadOverlayView = backdrop
+            wm.addView(backdrop, params)
+        } catch (_: Exception) {
+            gesturePadOverlayView = null
+        }
+    }
+
+    private fun closeFloatingGesturePad() {
+        try {
+            val wm = getSystemService(WINDOW_SERVICE) as WindowManager
+            gesturePadOverlayView?.let { wm.removeView(it) }
+        } catch (_: Exception) {
+        }
+        gesturePadOverlayView = null
+    }
+
+    private fun executeGlobalGestureAction(target: String, label: String) {
+        when (target) {
+            "ACTION_TORCH" -> {
+                val ok = toggleTorch(this)
+                Toast.makeText(this, if (ok) "Torch Toggled" else "Torch Unavailable", Toast.LENGTH_SHORT).show()
+            }
+            "ACTION_SCREENSHOT" -> {
+                // Brief delay so the gesture overlay finishes closing before screenshot is snapped
+                idleHandler.postDelayed({ triggerSystemScreenshot() }, 250L)
+            }
+            else -> {
+                val launch = packageManager.getLaunchIntentForPackage(target)?.apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                if (launch != null) {
+                    Toast.makeText(this, "Opening $label", Toast.LENGTH_SHORT).show()
+                    startActivity(launch)
+                }
+            }
+        }
+    }
+
+    // ================= ACCESSIBILITY APP MONITORING =================
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (storage.isMasterPaused) return
         val eventType = event?.eventType ?: return
 
-        // Detect Recents gesture / window transition immediately to blur background snapshot
         if (eventType == AccessibilityEvent.TYPE_WINDOWS_CHANGED) {
             val activePkg = activeUnlockedPackage
             if (activePkg != null && storage.isBackgroundBlurEnabled && storage.getLockedApps().contains(activePkg)) {
@@ -107,7 +324,6 @@ class AppMonitorService : AccessibilityService() {
             return
         }
 
-        // App exited to Home, Recents, or another app
         if (activeUnlockedPackage != null && activeUnlockedPackage != pkg) {
             val previousPkg = activeUnlockedPackage!!
             idleHandler.removeCallbacks(idleCheckRunnable)
@@ -229,6 +445,8 @@ class AppMonitorService : AccessibilityService() {
     }
 
     override fun onDestroy() {
+        removeFloatingBubble()
+        closeFloatingGesturePad()
         instance = null
         super.onDestroy()
     }
