@@ -11,6 +11,7 @@ import kotlin.math.hypot
 class PatternLockView(context: Context) : View(context) {
 
     var onPatternComplete: ((String) -> Unit)? = null
+    var hidePattern: Boolean = false
 
     private val selectedNodes = mutableListOf<Int>()
     private var currentTouchX = -1f
@@ -19,13 +20,13 @@ class PatternLockView(context: Context) : View(context) {
 
     private val outerRingPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = 5f
+        strokeWidth = 6f
         color = Color.parseColor("#334155")
     }
 
     private val activeRingPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = 7f
+        strokeWidth = 8f
         color = Color.parseColor("#10B981")
     }
 
@@ -41,7 +42,7 @@ class PatternLockView(context: Context) : View(context) {
 
     private val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = 10f
+        strokeWidth = 12f
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
         color = Color.parseColor("#10B981")
@@ -56,7 +57,10 @@ class PatternLockView(context: Context) : View(context) {
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-        val size = MeasureSpec.getSize(widthMeasureSpec).coerceAtMost(620)
+        val screenWidth = resources.displayMetrics.widthPixels
+        val defaultSize = (screenWidth * 0.78f).toInt()
+        val availableWidth = MeasureSpec.getSize(widthMeasureSpec)
+        val size = if (availableWidth > 0) availableWidth.coerceAtMost(defaultSize) else defaultSize
         setMeasuredDimension(size, size)
     }
 
@@ -64,24 +68,26 @@ class PatternLockView(context: Context) : View(context) {
         super.onDraw(canvas)
         if (width == 0 || height == 0) return
 
-        // Draw connecting lines
-        for (i in 0 until selectedNodes.size - 1) {
-            val (x1, y1) = getNodeCenter(selectedNodes[i])
-            val (x2, y2) = getNodeCenter(selectedNodes[i + 1])
-            canvas.drawLine(x1, y1, x2, y2, linePaint)
+        // Draw lines only when hidePattern is disabled
+        if (!hidePattern) {
+            for (i in 0 until selectedNodes.size - 1) {
+                val (x1, y1) = getNodeCenter(selectedNodes[i])
+                val (x2, y2) = getNodeCenter(selectedNodes[i + 1])
+                canvas.drawLine(x1, y1, x2, y2, linePaint)
+            }
+
+            if (isDrawing && selectedNodes.isNotEmpty() && currentTouchX >= 0f) {
+                val (lastX, lastY) = getNodeCenter(selectedNodes.last())
+                canvas.drawLine(lastX, lastY, currentTouchX, currentTouchY, linePaint)
+            }
         }
 
-        if (isDrawing && selectedNodes.isNotEmpty() && currentTouchX >= 0f) {
-            val (lastX, lastY) = getNodeCenter(selectedNodes.last())
-            canvas.drawLine(lastX, lastY, currentTouchX, currentTouchY, linePaint)
-        }
-
-        // Draw 9 nodes
+        // Draw 9 standard Android lockscreen nodes
         for (i in 0 until 9) {
             val (cx, cy) = getNodeCenter(i)
-            val isSelected = selectedNodes.contains(i)
-            canvas.drawCircle(cx, cy, 42f, if (isSelected) activeRingPaint else outerRingPaint)
-            canvas.drawCircle(cx, cy, if (isSelected) 18f else 12f, if (isSelected) activeDotPaint else dotPaint)
+            val showActive = !hidePattern && selectedNodes.contains(i)
+            canvas.drawCircle(cx, cy, 52f, if (showActive) activeRingPaint else outerRingPaint)
+            canvas.drawCircle(cx, cy, if (showActive) 22f else 15f, if (showActive) activeDotPaint else dotPaint)
         }
     }
 
@@ -118,12 +124,11 @@ class PatternLockView(context: Context) : View(context) {
     }
 
     private fun checkHit(x: Float, y: Float) {
-        val hitRadius = (width / 3f) * 0.34f
+        val hitRadius = (width / 3f) * 0.36f
         for (i in 0 until 9) {
             if (selectedNodes.contains(i)) continue
             val (cx, cy) = getNodeCenter(i)
             if (hypot(x - cx, y - cy) <= hitRadius) {
-                // Auto-include intermediate skipped node (standard Android pattern behavior)
                 if (selectedNodes.isNotEmpty()) {
                     val prev = selectedNodes.last()
                     val mid = getMiddleNode(prev, i)
