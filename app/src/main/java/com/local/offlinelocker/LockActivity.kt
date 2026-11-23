@@ -25,6 +25,7 @@ class LockActivity : FragmentActivity() {
     private lateinit var storage: LockStorage
     private var targetPackage: String = ""
     private var crashDialog: AlertDialog? = null
+    private lateinit var activeAuthMode: LockStorage.AuthType
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -37,6 +38,7 @@ class LockActivity : FragmentActivity() {
 
         storage = LockStorage(this)
         targetPackage = intent.getStringExtra("TARGET_PACKAGE") ?: ""
+        activeAuthMode = storage.getDefaultAuthType()
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
@@ -44,7 +46,6 @@ class LockActivity : FragmentActivity() {
             }
         })
 
-        // App-wise Fake Crash check
         if (storage.getFakeCrashApps().contains(targetPackage)) {
             showFakeCrashDialog()
         } else {
@@ -82,8 +83,6 @@ class LockActivity : FragmentActivity() {
     }
 
     private fun showRealLockScreen() {
-        val authType = storage.getAuthType()
-
         val rootFrame = FrameLayout(this).apply {
             layoutParams = FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
@@ -114,7 +113,7 @@ class LockActivity : FragmentActivity() {
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(40, 56, 40, 56)
+            setPadding(40, 48, 40, 48)
             background = GradientDrawable().apply {
                 setColor(Color.parseColor("#D9162032"))
                 cornerRadius = 44f
@@ -125,7 +124,7 @@ class LockActivity : FragmentActivity() {
                 FrameLayout.LayoutParams.WRAP_CONTENT,
                 Gravity.CENTER
             ).apply {
-                setMargins(32, 48, 32, 48)
+                setMargins(32, 40, 32, 40)
             }
         }
 
@@ -136,44 +135,82 @@ class LockActivity : FragmentActivity() {
                 shape = GradientDrawable.OVAL
                 setColor(Color.parseColor("#2610B981"))
             }
-            setPadding(30, 30, 30, 30)
-            layoutParams = LinearLayout.LayoutParams(136, 136).apply {
-                bottomMargin = 20
+            setPadding(26, 26, 26, 26)
+            layoutParams = LinearLayout.LayoutParams(124, 124).apply {
+                bottomMargin = 16
             }
         }
 
         val appTitle = TextView(this).apply {
             text = getTargetAppLabel()
-            textSize = 21f
+            textSize = 20f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(Color.parseColor("#F8FAFC"))
             gravity = Gravity.CENTER
         }
 
         val subtitle = TextView(this).apply {
-            text = if (authType == LockStorage.AuthType.PATTERN) "Draw unlock pattern"
-            else "Enter ${authType.name} to unlock"
-            textSize = 14f
+            text = if (activeAuthMode == LockStorage.AuthType.PATTERN) "Draw unlock pattern"
+            else "Enter ${activeAuthMode.name} to unlock"
+            textSize = 13f
             setTextColor(Color.parseColor("#94A3B8"))
             gravity = Gravity.CENTER
-            setPadding(0, 8, 0, 24)
+            setPadding(0, 6, 0, 20)
         }
 
         card.addView(lockIconView)
         card.addView(appTitle)
         card.addView(subtitle)
 
-        if (authType == LockStorage.AuthType.PATTERN) {
+        // Mode switcher bar if user configured multiple credentials (PIN + Pattern + Password)
+        val configuredModes = storage.getConfiguredAuthTypes()
+        if (configuredModes.size > 1) {
+            val modeSwitchRow = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER
+                setPadding(0, 0, 0, 20)
+            }
+            for (mode in configuredModes) {
+                val chip = TextView(this).apply {
+                    text = mode.name
+                    textSize = 11f
+                    typeface = Typeface.DEFAULT_BOLD
+                    setPadding(24, 12, 24, 12)
+                    setTextColor(if (mode == activeAuthMode) Color.parseColor("#06130E") else Color.parseColor("#94A3B8"))
+                    background = GradientDrawable().apply {
+                        setColor(if (mode == activeAuthMode) Color.parseColor("#10B981") else Color.parseColor("#0B1120"))
+                        cornerRadius = 20f
+                    }
+                    layoutParams = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.WRAP_CONTENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT
+                    ).apply { setMargins(8, 0, 8, 0) }
+                    setOnClickListener {
+                        activeAuthMode = mode
+                        showRealLockScreen()
+                    }
+                }
+                modeSwitchRow.addView(chip)
+            }
+            card.addView(modeSwitchRow)
+        }
+
+        if (activeAuthMode == LockStorage.AuthType.PATTERN) {
+            val patternContainer = FrameLayout(this).apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { bottomMargin = 20 }
+            }
             val patternView = PatternLockView(this).apply {
                 hidePattern = storage.isPatternHidden
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.WRAP_CONTENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply {
-                    bottomMargin = 24
-                }
+                layoutParams = FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.WRAP_CONTENT,
+                    FrameLayout.LayoutParams.WRAP_CONTENT,
+                    Gravity.CENTER
+                )
                 onPatternComplete = { drawnCode ->
-                    if (storage.verifySecret(drawnCode)) {
+                    if (storage.verifyCredential(LockStorage.AuthType.PATTERN, drawnCode)) {
                         onUnlocked()
                     } else {
                         shakeCard(card)
@@ -181,21 +218,22 @@ class LockActivity : FragmentActivity() {
                     }
                 }
             }
-            card.addView(patternView)
+            patternContainer.addView(patternView)
+            card.addView(patternContainer)
         } else {
             val input = EditText(this).apply {
-                hint = if (authType == LockStorage.AuthType.PIN) "••••" else "Enter Password"
+                hint = if (activeAuthMode == LockStorage.AuthType.PIN) "••••" else "Enter Password"
                 setHintTextColor(Color.parseColor("#64748B"))
                 setTextColor(Color.parseColor("#F8FAFC"))
                 textSize = 18f
                 gravity = Gravity.CENTER
-                setPadding(32, 28, 32, 28)
+                setPadding(32, 26, 32, 26)
                 background = GradientDrawable().apply {
                     setColor(Color.parseColor("#0B1120"))
                     cornerRadius = 24f
                     setStroke(2, Color.parseColor("#334155"))
                 }
-                inputType = if (authType == LockStorage.AuthType.PIN) {
+                inputType = if (activeAuthMode == LockStorage.AuthType.PIN) {
                     InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD
                 } else {
                     InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
@@ -204,7 +242,7 @@ class LockActivity : FragmentActivity() {
                     LinearLayout.LayoutParams.MATCH_PARENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT
                 ).apply {
-                    bottomMargin = 28
+                    bottomMargin = 24
                 }
             }
 
@@ -220,15 +258,15 @@ class LockActivity : FragmentActivity() {
                     LinearLayout.LayoutParams.MATCH_PARENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT
                 ).apply {
-                    bottomMargin = 20
+                    bottomMargin = 18
                 }
                 setOnClickListener {
-                    if (storage.verifySecret(input.text.toString())) {
+                    if (storage.verifyCredential(activeAuthMode, input.text.toString())) {
                         onUnlocked()
                     } else {
                         input.text.clear()
                         shakeCard(card)
-                        Toast.makeText(this@LockActivity, "Wrong ${authType.name}", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(this@LockActivity, "Wrong ${activeAuthMode.name}", Toast.LENGTH_SHORT).show()
                     }
                 }
             }
@@ -288,7 +326,7 @@ class LockActivity : FragmentActivity() {
         val promptInfo = BiometricPrompt.PromptInfo.Builder()
             .setTitle("Unlock ${getTargetAppLabel()}")
             .setSubtitle("Touch the Pixel fingerprint sensor")
-            .setNegativeButtonText("Use ${storage.getAuthType().name}")
+            .setNegativeButtonText("Use ${activeAuthMode.name}")
             .build()
 
         prompt.authenticate(promptInfo)
