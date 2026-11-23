@@ -1,0 +1,29 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Midnight Slate Background -->
+    <path
+        android:fillColor="#0B1120"
+        android:pathData="M0,0h108v108h-108z" />
+    <!-- Subtle Emerald Glow Ring -->
+    <path
+        android:fillColor="#1E293B"
+        android:pathData="M54,18A36,36 0 1,1 54,90A36,36 0 1,1 54,18Z" />
+    <!-- Padlock Shackle -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#38BDF8"
+        android:strokeWidth="5.5"
+        android:strokeLineCap="round"
+        android:pathData="M42,48V39A12,12 0 0,1 66,39V48" />
+    <!-- Padlock Body -->
+    <path
+        android:fillColor="#10B981"
+        android:pathData="M36,48H72A4,4 0 0,1 76,52V72A4,4 0 0,1 72,76H36A4,4 0 0,1 32,72V52A4,4 0 0,1 36,48Z" />
+    <!-- Keyhole -->
+    <path
+        android:fillColor="#06130E"
+        android:pathData="M54,57A3.5,3.5 0 1,1 54,64A3.5,3.5 0 1,1 54,57ZM52.5,62H55.5V69H52.5Z" />
+</vector>
