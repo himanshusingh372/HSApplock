@@ -44,8 +44,13 @@ class LockStorage(context: Context) {
         get() = prefs.getBoolean("fake_crash_enabled", false)
         set(value) = prefs.edit().putBoolean("fake_crash_enabled", value).apply()
 
+    var isPatternHidden: Boolean
+        get() = prefs.getBoolean("hide_pattern_path", false)
+        set(value) = prefs.edit().putBoolean("hide_pattern_path", value).apply()
+
+    // 0 = Relock immediately when app goes to background or closes
     var relockTimeoutSeconds: Int
-        get() = prefs.getInt("relock_timeout_sec", 30)
+        get() = prefs.getInt("relock_timeout_sec", 0)
         set(value) = prefs.edit().putInt("relock_timeout_sec", value).apply()
 
     fun getLockedApps(): Set<String> =
