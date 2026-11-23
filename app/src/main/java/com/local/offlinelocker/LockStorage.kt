@@ -21,7 +21,6 @@ class LockStorage(context: Context) {
 
     enum class AuthType { PIN, PASSWORD, PATTERN }
 
-    // ================= INDEPENDENT CREDENTIALS (PIN + PASSWORD + PATTERN) =================
     fun setCredentialForType(type: AuthType, rawSecret: String) {
         prefs.edit()
             .putString("hash_${type.name}", sha256(rawSecret))
@@ -51,7 +50,6 @@ class LockStorage(context: Context) {
     fun getConfiguredAuthTypes(): List<AuthType> =
         AuthType.entries.filter { hasCredential(it) }
 
-    // ================= MASTER TEMPORARY OFF BUTTON =================
     var isMasterPaused: Boolean
         get() = prefs.getBoolean("master_paused", false)
         set(value) = prefs.edit().putBoolean("master_paused", value).apply()
@@ -72,11 +70,14 @@ class LockStorage(context: Context) {
         get() = prefs.getBoolean("bg_blur_enabled", true)
         set(value) = prefs.edit().putBoolean("bg_blur_enabled", value).apply()
 
+    var isFloatingGestureEnabled: Boolean
+        get() = prefs.getBoolean("floating_gesture_enabled", true)
+        set(value) = prefs.edit().putBoolean("floating_gesture_enabled", value).apply()
+
     var idleTimeoutSeconds: Int
         get() = prefs.getInt("idle_timeout_sec", 30)
         set(value) = prefs.edit().putInt("idle_timeout_sec", value).apply()
 
-    // ================= PER-APP LISTS =================
     fun getLockedApps(): Set<String> =
         prefs.getStringSet("locked_packages", emptySet()) ?: emptySet()
 
@@ -91,7 +92,6 @@ class LockStorage(context: Context) {
         prefs.edit().putStringSet("fake_crash_packages", packages).apply()
     }
 
-    // Separate Wi-Fi Blocked vs Mobile Data Blocked lists
     fun getWifiBlockedApps(): Set<String> =
         prefs.getStringSet("wifi_blocked_packages", emptySet()) ?: emptySet()
 
@@ -106,8 +106,6 @@ class LockStorage(context: Context) {
         prefs.edit().putStringSet("mobile_blocked_packages", packages).apply()
     }
 
-    // ================= SAVED HAND-SIGN GESTURES =================
-    // Format: signature -> "label::actionTarget" (actionTarget = package name OR "ACTION_TORCH" / "ACTION_SCREENSHOT")
     data class GestureBinding(
         val signature: String,
         val label: String,
