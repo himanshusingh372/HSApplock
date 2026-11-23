@@ -1,9 +1,11 @@
 package com.local.offlinelocker
 
 import android.accessibilityservice.AccessibilityService
+import android.content.Context
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.PixelFormat
+import android.hardware.camera2.CameraManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -27,14 +29,35 @@ class AppMonitorService : AccessibilityService() {
 
     companion object {
         private val lastInteractionMap = mutableMapOf<String, Long>()
+        var instance: AppMonitorService? = null
+        private var torchIsOn = false
 
         fun markAppUnlocked(pkg: String) {
             lastInteractionMap[pkg] = SystemClock.elapsedRealtime()
+        }
+
+        fun triggerSystemScreenshot(): Boolean {
+            return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                instance?.performGlobalAction(GLOBAL_ACTION_TAKE_SCREENSHOT) ?: false
+            } else false
+        }
+
+        fun toggleTorch(context: Context): Boolean {
+            return try {
+                val cm = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
+                val cameraId = cm.cameraIdList.firstOrNull() ?: return false
+                torchIsOn = !torchIsOn
+                cm.setTorchMode(cameraId, torchIsOn)
+                true
+            } catch (_: Exception) {
+                false
+            }
         }
     }
 
     private val idleCheckRunnable = object : Runnable {
         override fun run() {
+            if (storage.isMasterPaused) return
             val currentPkg = activeUnlockedPackage ?: return
             val timeoutSec = storage.idleTimeoutSeconds
             if (timeoutSec <= 0) return
@@ -54,26 +77,41 @@ class AppMonitorService : AccessibilityService() {
 
     override fun onServiceConnected() {
         super.onServiceConnected()
+        instance = this
         storage = LockStorage(this)
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        val pkg = event?.packageName?.toString() ?: return
+        if (storage.isMasterPaused) return
+        val eventType = event?.eventType ?: return
+
+        // Detect Recents gesture / window transition immediately to blur background snapshot
+        if (eventType == AccessibilityEvent.TYPE_WINDOWS_CHANGED) {
+            val activePkg = activeUnlockedPackage
+            if (activePkg != null && storage.isBackgroundBlurEnabled && storage.getLockedApps().contains(activePkg)) {
+                val foregroundNow = rootInActiveWindow?.packageName?.toString()
+                if (foregroundNow != null && foregroundNow != activePkg && foregroundNow != packageName) {
+                    showBackgroundBlurShield()
+                }
+            }
+            return
+        }
+
+        val pkg = event.packageName?.toString() ?: return
         if (pkg == packageName || pkg == "com.android.systemui") return
 
-        if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+        if (eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
             if (pkg == activeUnlockedPackage) {
                 lastInteractionMap[pkg] = SystemClock.elapsedRealtime()
             }
             return
         }
 
-        // App went to background / Home / Recents
+        // App exited to Home, Recents, or another app
         if (activeUnlockedPackage != null && activeUnlockedPackage != pkg) {
             val previousPkg = activeUnlockedPackage!!
             idleHandler.removeCallbacks(idleCheckRunnable)
 
-            // Show brief background blur privacy shield so Recents preview is blurred
             if (storage.isBackgroundBlurEnabled && storage.getLockedApps().contains(previousPkg)) {
                 showBackgroundBlurShield()
             }
@@ -115,25 +153,25 @@ class AppMonitorService : AccessibilityService() {
                 PixelFormat.TRANSLUCENT
             ).apply {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    blurBehindRadius = 95
+                    blurBehindRadius = 110
                 }
             }
 
             val shield = FrameLayout(this).apply {
-                setBackgroundColor(Color.parseColor("#CC0B1120"))
+                setBackgroundColor(Color.parseColor("#E60B1120"))
                 val box = LinearLayout(context).apply {
                     orientation = LinearLayout.VERTICAL
                     gravity = Gravity.CENTER
                     val icon = ImageView(context).apply {
                         setImageResource(android.R.drawable.ic_lock_idle_lock)
                         setColorFilter(Color.parseColor("#10B981"))
-                        layoutParams = LinearLayout.LayoutParams(110, 110)
+                        layoutParams = LinearLayout.LayoutParams(120, 120)
                     }
                     val label = TextView(context).apply {
-                        text = "HS AppLock Protected"
+                        text = "HS AppLock Privacy Blur"
                         setTextColor(Color.WHITE)
-                        textSize = 15f
-                        setPadding(0, 16, 0, 0)
+                        textSize = 16f
+                        setPadding(0, 18, 0, 0)
                     }
                     addView(icon)
                     addView(label)
@@ -148,14 +186,13 @@ class AppMonitorService : AccessibilityService() {
             blurOverlayView = shield
             wm.addView(shield, params)
 
-            // Automatically fade out shield after 1.1 seconds once system snapshot is captured
             idleHandler.postDelayed({
                 try {
                     blurOverlayView?.let { wm.removeView(it) }
                 } catch (_: Exception) {
                 }
                 blurOverlayView = null
-            }, 1100L)
+            }, 1300L)
         } catch (_: Exception) {
             blurOverlayView = null
         }
@@ -189,5 +226,10 @@ class AppMonitorService : AccessibilityService() {
 
     override fun onInterrupt() {
         idleHandler.removeCallbacks(idleCheckRunnable)
+    }
+
+    override fun onDestroy() {
+        instance = null
+        super.onDestroy()
     }
 }
