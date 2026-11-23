@@ -45,7 +45,6 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         storage = LockStorage(this)
 
-        // Include ALL launchable user + pre-installed system apps (YouTube, Photos, Chrome, etc.)
         allLaunchableApps = packageManager.getInstalledApplications(0)
             .filter {
                 it.packageName != packageName &&
@@ -72,12 +71,11 @@ class MainActivity : Activity() {
             )
         }
 
-        // Calculate safe status-bar height + generous extra top margin so Settings icon is easy to tap
         val statusBarResId = resources.getIdentifier("status_bar_height", "dimen", "android")
         val statusBarHeight = if (statusBarResId > 0) resources.getDimensionPixelSize(statusBarResId) else 80
         val safeTopPadding = statusBarHeight + 56
 
-        // ================= 1. HEADER WITH GENEROUS TOP MARGIN =================
+        // ================= 1. HEADER =================
         val header = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -139,7 +137,7 @@ class MainActivity : Activity() {
         header.addView(titleBox)
         header.addView(settingsBtn)
 
-        // ================= 2. TWO SEPARATE TABS (ALL APPS / LOCKED APPS) =================
+        // ================= 2. TWO SEPARATE TABS =================
         val tabBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             setPadding(32, 20, 32, 12)
@@ -320,10 +318,10 @@ class MainActivity : Activity() {
 
     private fun updateFooter() {
         val count = storage.getLockedApps().size
-        val timeout = storage.relockTimeoutSeconds
-        val timeLabel = if (timeout == 0) "On Exit (0s)" else "${timeout}s idle"
-        val mode = storage.getAuthType().name
-        footerText.text = "$count Locked  •  $mode  •  Relock: $timeLabel"
+        val exitLabel = if (storage.isLockOnExitEnabled) "Exit: ON" else "Exit: OFF"
+        val idleSec = storage.idleTimeoutSeconds
+        val idleLabel = if (idleSec == 0) "Idle: OFF" else "Idle: ${idleSec}s"
+        footerText.text = "$count Locked  •  $exitLabel  •  $idleLabel"
     }
 
     private fun refreshAppList() {
@@ -443,7 +441,7 @@ class MainActivity : Activity() {
         }
 
         val authLabel = TextView(this).apply {
-            text = "\n2. Select Lock Method:"
+            text = "\n2. Lock Method (PIN / Password / Pattern):"
             typeface = Typeface.DEFAULT_BOLD
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -577,17 +575,38 @@ class MainActivity : Activity() {
             override fun onNothingSelected(parent: AdapterView<*>?) {}
         }
 
-        val timerOptions = listOf(
-            "Immediately on Exit / Background (0 sec)" to 0,
-            "After 15 seconds" to 15,
-            "After 30 seconds" to 30,
-            "After 1 minute" to 60,
-            "After 5 minutes" to 300,
-            "After 15 minutes" to 900
+        // ================= SEPARATE FEATURE A: LOCK ON EXIT =================
+        val lockOnExitSwitch = Switch(this).apply {
+            text = "\n3. Lock Immediately on App Exit\n(Relock the instant you leave or close the app)"
+            isChecked = storage.isLockOnExitEnabled
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            setOnCheckedChangeListener { _, checked ->
+                storage.isLockOnExitEnabled = checked
+                updateFooter()
+                showAnimatedNotification(
+                    if (checked) "Immediate Lock on Exit: ON" else "Immediate Lock on Exit: OFF",
+                    "#10B981",
+                    "#06130E"
+                )
+            }
+        }
+
+        // ================= SEPARATE FEATURE B: INACTIVITY / IDLE TIMEOUT =================
+        val idleOptions = listOf(
+            "Disabled (No idle timeout)" to 0,
+            "After 15 seconds of inactivity" to 15,
+            "After 30 seconds of inactivity" to 30,
+            "After 1 minute of inactivity" to 60,
+            "After 3 minutes of inactivity" to 180,
+            "After 5 minutes of inactivity" to 300,
+            "After 15 minutes of inactivity" to 900
         )
 
-        val timerLabel = TextView(this).apply {
-            text = "\n3. Auto-Relock Timing:"
+        val idleLabel = TextView(this).apply {
+            text = "\n4. Inactivity / Idle Lock Timeout\n(Locks automatically if screen is not touched):"
             typeface = Typeface.DEFAULT_BOLD
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -595,13 +614,13 @@ class MainActivity : Activity() {
             )
         }
 
-        val timerSpinner = Spinner(this).apply {
+        val idleSpinner = Spinner(this).apply {
             adapter = ArrayAdapter(
                 this@MainActivity,
                 android.R.layout.simple_spinner_dropdown_item,
-                timerOptions.map { it.first }
+                idleOptions.map { it.first }
             )
-            val currentIdx = timerOptions.indexOfFirst { it.second == storage.relockTimeoutSeconds }
+            val currentIdx = idleOptions.indexOfFirst { it.second == storage.idleTimeoutSeconds }
             if (currentIdx >= 0) setSelection(currentIdx)
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -615,16 +634,17 @@ class MainActivity : Activity() {
                         initial = false
                         return
                     }
-                    storage.relockTimeoutSeconds = timerOptions[pos].second
+                    storage.idleTimeoutSeconds = idleOptions[pos].second
                     updateFooter()
-                    showAnimatedNotification("Relock: ${timerOptions[pos].first}", "#38BDF8", "#0B1120")
+                    showAnimatedNotification("Idle Timer: ${idleOptions[pos].first}", "#38BDF8", "#0B1120")
                 }
                 override fun onNothingSelected(parent: AdapterView<*>?) {}
             }
         }
 
+        // ================= BIOMETRIC & FAKE CRASH =================
         val bioSwitch = Switch(this).apply {
-            text = "\nFingerprint Biometric Unlock"
+            text = "\n5. Fingerprint Biometric Unlock"
             isChecked = storage.isFingerprintEnabled
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -639,7 +659,7 @@ class MainActivity : Activity() {
         }
 
         val fakeCrashSwitch = Switch(this).apply {
-            text = "Fake App Crash Mode\n(Long-press 'App info' to unlock)"
+            text = "\n6. Fake App Crash Mode\n(Long-press 'App info' to unlock)"
             isChecked = storage.isFakeCrashEnabled
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -660,8 +680,9 @@ class MainActivity : Activity() {
         container.addView(authSpinner)
         container.addView(textCredentialBox)
         container.addView(patternSetupBox)
-        container.addView(timerLabel)
-        container.addView(timerSpinner)
+        container.addView(lockOnExitSwitch)
+        container.addView(idleLabel)
+        container.addView(idleSpinner)
         container.addView(bioSwitch)
         container.addView(fakeCrashSwitch)
         scroll.addView(container)
