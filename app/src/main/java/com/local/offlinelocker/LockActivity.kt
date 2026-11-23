@@ -1,22 +1,26 @@
 package com.local.offlinelocker
 
+import android.app.AlertDialog
 import android.content.Intent
+import android.graphics.Color
+import android.graphics.RenderEffect
+import android.graphics.Shader
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
+import android.os.Build
 import android.os.Bundle
 import android.text.InputType
+import android.view.Gravity
 import android.view.View
-import android.widget.Button
-import android.widget.EditText
-import android.widget.LinearLayout
-import android.widget.TextView
-import android.widget.Toast
+import android.view.WindowManager
+import android.widget.*
 import androidx.activity.OnBackPressedCallback
-import androidx.appcompat.app.AlertDialog
-import androidx.appcompat.app.AppCompatActivity
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.core.content.ContextCompat
+import androidx.fragment.app.FragmentActivity
 
-class LockActivity : AppCompatActivity() {
+class LockActivity : FragmentActivity() {
 
     private lateinit var storage: LockStorage
     private var targetPackage: String = ""
@@ -24,6 +28,13 @@ class LockActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        window.addFlags(WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
+            window.attributes.blurBehindRadius = 90
+        }
+
         storage = LockStorage(this)
         targetPackage = intent.getStringExtra("TARGET_PACKAGE") ?: ""
 
@@ -40,24 +51,24 @@ class LockActivity : AppCompatActivity() {
         }
     }
 
-    private fun showFakeCrashDialog() {
-        val appLabel = try {
+    private fun getTargetAppLabel(): String {
+        return try {
             val info = packageManager.getApplicationInfo(targetPackage, 0)
             packageManager.getApplicationLabel(info).toString()
         } catch (e: Exception) {
-            "App"
+            "Protected App"
         }
+    }
 
-        crashDialog = AlertDialog.Builder(this)
+    private fun showFakeCrashDialog() {
+        val appLabel = getTargetAppLabel()
+
+        crashDialog = AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
             .setTitle("$appLabel keeps stopping")
             .setMessage("Close the app and try again.")
             .setCancelable(false)
-            .setPositiveButton("App info") { _, _ ->
-                goHome()
-            }
-            .setNegativeButton("Close app") { _, _ ->
-                goHome()
-            }
+            .setPositiveButton("App info") { _, _ -> goHome() }
+            .setNegativeButton("Close app") { _, _ -> goHome() }
             .create()
 
         crashDialog?.show()
@@ -73,57 +84,192 @@ class LockActivity : AppCompatActivity() {
     private fun showRealLockScreen() {
         val authType = storage.getAuthType()
 
-        val container = LinearLayout(this).apply {
+        val rootFrame = FrameLayout(this).apply {
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
+        }
+
+        // Full-screen blurred obsidian backdrop
+        val blurBackdrop = View(this).apply {
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
+            background = GradientDrawable(
+                GradientDrawable.Orientation.TL_BR,
+                intArrayOf(
+                    Color.parseColor("#EB060B14"),
+                    Color.parseColor("#F00F172A"),
+                    Color.parseColor("#F5091E2C")
+                )
+            )
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                setRenderEffect(
+                    RenderEffect.createBlurEffect(55f, 55f, Shader.TileMode.CLAMP)
+                )
+            }
+        }
+
+        val card = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(64, 64, 64, 64)
-        }
-
-        val title = TextView(this).apply {
-            text = "Unlock (${authType.name})"
-            textSize = 20f
-        }
-
-        val input = EditText(this).apply {
-            hint = when (authType) {
-                LockStorage.AuthType.PIN -> "Enter PIN"
-                LockStorage.AuthType.PASSWORD -> "Enter Password"
-                LockStorage.AuthType.PATTERN -> "Enter Pattern (e.g. 12589)"
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(56, 64, 56, 64)
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#D9162032"))
+                cornerRadius = 44f
+                setStroke(2, Color.parseColor("#10B981"))
             }
-            inputType = when (authType) {
-                LockStorage.AuthType.PIN, LockStorage.AuthType.PATTERN ->
-                    InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD
-                LockStorage.AuthType.PASSWORD ->
-                    InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.CENTER
+            ).apply {
+                setMargins(48, 48, 48, 48)
             }
         }
 
-        val unlockBtn = Button(this).apply {
-            text = "Unlock"
-            setOnClickListener {
-                if (storage.verifySecret(input.text.toString())) {
-                    onUnlocked()
-                } else {
-                    Toast.makeText(this@LockActivity, "Incorrect credentials", Toast.LENGTH_SHORT).show()
-                    input.text.clear()
+        // Emerald Lock Shield Badge
+        val lockIconView = ImageView(this).apply {
+            setImageResource(android.R.drawable.ic_lock_idle_lock)
+            setColorFilter(Color.parseColor("#10B981"))
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(Color.parseColor("#2610B981"))
+            }
+            setPadding(32, 32, 32, 32)
+            layoutParams = LinearLayout.LayoutParams(144, 144).apply {
+                bottomMargin = 24
+            }
+        }
+
+        val appTitle = TextView(this).apply {
+            text = getTargetAppLabel()
+            textSize = 21f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.parseColor("#F8FAFC"))
+            gravity = Gravity.CENTER
+        }
+
+        val subtitle = TextView(this).apply {
+            text = if (authType == LockStorage.AuthType.PATTERN) "Draw unlock pattern"
+            else "Enter ${authType.name} to unlock"
+            textSize = 14f
+            setTextColor(Color.parseColor("#94A3B8"))
+            gravity = Gravity.CENTER
+            setPadding(0, 8, 0, 32)
+        }
+
+        card.addView(lockIconView)
+        card.addView(appTitle)
+        card.addView(subtitle)
+
+        if (authType == LockStorage.AuthType.PATTERN) {
+            val patternView = PatternLockView(this).apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    bottomMargin = 28
+                }
+                onPatternComplete = { drawnCode ->
+                    if (storage.verifySecret(drawnCode)) {
+                        onUnlocked()
+                    } else {
+                        shakeCard(card)
+                        Toast.makeText(this@LockActivity, "Incorrect Pattern", Toast.LENGTH_SHORT).show()
+                    }
                 }
             }
+            card.addView(patternView)
+        } else {
+            val input = EditText(this).apply {
+                hint = if (authType == LockStorage.AuthType.PIN) "••••" else "Enter Password"
+                setHintTextColor(Color.parseColor("#64748B"))
+                setTextColor(Color.parseColor("#F8FAFC"))
+                textSize = 18f
+                gravity = Gravity.CENTER
+                setPadding(32, 28, 32, 28)
+                background = GradientDrawable().apply {
+                    setColor(Color.parseColor("#0B1120"))
+                    cornerRadius = 24f
+                    setStroke(2, Color.parseColor("#334155"))
+                }
+                inputType = if (authType == LockStorage.AuthType.PIN) {
+                    InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD
+                } else {
+                    InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+                }
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    bottomMargin = 28
+                }
+            }
+
+            val unlockBtn = Button(this).apply {
+                text = "Unlock"
+                setTextColor(Color.parseColor("#06130E"))
+                typeface = Typeface.DEFAULT_BOLD
+                background = GradientDrawable().apply {
+                    setColor(Color.parseColor("#10B981"))
+                    cornerRadius = 24f
+                }
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    bottomMargin = 20
+                }
+                setOnClickListener {
+                    if (storage.verifySecret(input.text.toString())) {
+                        onUnlocked()
+                    } else {
+                        input.text.clear()
+                        shakeCard(card)
+                        Toast.makeText(this@LockActivity, "Wrong ${authType.name}", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+
+            card.addView(input)
+            card.addView(unlockBtn)
         }
 
         val bioBtn = Button(this).apply {
-            text = "Use Fingerprint"
+            text = "Touch Fingerprint"
+            setTextColor(Color.parseColor("#38BDF8"))
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#0B1120"))
+                cornerRadius = 24f
+                setStroke(2, Color.parseColor("#38BDF8"))
+            }
             visibility = if (storage.isFingerprintEnabled) View.VISIBLE else View.GONE
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
             setOnClickListener { triggerFingerprintPrompt() }
         }
 
-        container.addView(title)
-        container.addView(input)
-        container.addView(unlockBtn)
-        container.addView(bioBtn)
-        setContentView(container)
+        card.addView(bioBtn)
+        rootFrame.addView(blurBackdrop)
+        rootFrame.addView(card)
+        setContentView(rootFrame)
 
         if (storage.isFingerprintEnabled) {
             triggerFingerprintPrompt()
         }
+    }
+
+    private fun shakeCard(card: View) {
+        card.animate().translationX(22f).setDuration(45).withEndAction {
+            card.animate().translationX(-22f).setDuration(45).withEndAction {
+                card.animate().translationX(0f).setDuration(45).start()
+            }.start()
+        }.start()
     }
 
     private fun triggerFingerprintPrompt() {
@@ -141,7 +287,7 @@ class LockActivity : AppCompatActivity() {
         })
 
         val promptInfo = BiometricPrompt.PromptInfo.Builder()
-            .setTitle("App Locked")
+            .setTitle("Unlock ${getTargetAppLabel()}")
             .setSubtitle("Touch the Pixel fingerprint sensor")
             .setNegativeButtonText("Use ${storage.getAuthType().name}")
             .build()
@@ -150,7 +296,7 @@ class LockActivity : AppCompatActivity() {
     }
 
     private fun onUnlocked() {
-        AppMonitorService.temporarilyUnlockedPackage = targetPackage
+        AppMonitorService.markAppUnlocked(targetPackage)
         finish()
     }
 
