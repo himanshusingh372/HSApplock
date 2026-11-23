@@ -48,10 +48,15 @@ class LockStorage(context: Context) {
         get() = prefs.getBoolean("hide_pattern_path", false)
         set(value) = prefs.edit().putBoolean("hide_pattern_path", value).apply()
 
-    // 0 = Relock immediately when app goes to background or closes
-    var relockTimeoutSeconds: Int
-        get() = prefs.getInt("relock_timeout_sec", 0)
-        set(value) = prefs.edit().putInt("relock_timeout_sec", value).apply()
+    // Feature A: Immediately lock the moment you exit or switch away from the app
+    var isLockOnExitEnabled: Boolean
+        get() = prefs.getBoolean("lock_on_exit", true)
+        set(value) = prefs.edit().putBoolean("lock_on_exit", value).apply()
+
+    // Feature B: Lock after N seconds of inactivity / no touch (0 = disabled)
+    var idleTimeoutSeconds: Int
+        get() = prefs.getInt("idle_timeout_sec", 30)
+        set(value) = prefs.edit().putInt("idle_timeout_sec", value).apply()
 
     fun getLockedApps(): Set<String> =
         prefs.getStringSet("locked_packages", emptySet()) ?: emptySet()
