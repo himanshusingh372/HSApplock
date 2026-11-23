@@ -73,7 +73,6 @@ class LockActivity : FragmentActivity() {
 
         crashDialog?.show()
 
-        // Secret trigger: Long-press "App info" to reveal the real unlock screen
         crashDialog?.getButton(AlertDialog.BUTTON_POSITIVE)?.setOnLongClickListener {
             crashDialog?.dismiss()
             showRealLockScreen()
@@ -91,7 +90,6 @@ class LockActivity : FragmentActivity() {
             )
         }
 
-        // Full-screen blurred obsidian backdrop
         val blurBackdrop = View(this).apply {
             layoutParams = FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
@@ -115,7 +113,7 @@ class LockActivity : FragmentActivity() {
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(56, 64, 56, 64)
+            setPadding(40, 56, 40, 56)
             background = GradientDrawable().apply {
                 setColor(Color.parseColor("#D9162032"))
                 cornerRadius = 44f
@@ -126,11 +124,10 @@ class LockActivity : FragmentActivity() {
                 FrameLayout.LayoutParams.WRAP_CONTENT,
                 Gravity.CENTER
             ).apply {
-                setMargins(48, 48, 48, 48)
+                setMargins(32, 48, 32, 48)
             }
         }
 
-        // Emerald Lock Shield Badge
         val lockIconView = ImageView(this).apply {
             setImageResource(android.R.drawable.ic_lock_idle_lock)
             setColorFilter(Color.parseColor("#10B981"))
@@ -138,9 +135,9 @@ class LockActivity : FragmentActivity() {
                 shape = GradientDrawable.OVAL
                 setColor(Color.parseColor("#2610B981"))
             }
-            setPadding(32, 32, 32, 32)
-            layoutParams = LinearLayout.LayoutParams(144, 144).apply {
-                bottomMargin = 24
+            setPadding(30, 30, 30, 30)
+            layoutParams = LinearLayout.LayoutParams(136, 136).apply {
+                bottomMargin = 20
             }
         }
 
@@ -158,7 +155,7 @@ class LockActivity : FragmentActivity() {
             textSize = 14f
             setTextColor(Color.parseColor("#94A3B8"))
             gravity = Gravity.CENTER
-            setPadding(0, 8, 0, 32)
+            setPadding(0, 8, 0, 24)
         }
 
         card.addView(lockIconView)
@@ -167,11 +164,12 @@ class LockActivity : FragmentActivity() {
 
         if (authType == LockStorage.AuthType.PATTERN) {
             val patternView = PatternLockView(this).apply {
+                hidePattern = storage.isPatternHidden
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.WRAP_CONTENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT
                 ).apply {
-                    bottomMargin = 28
+                    bottomMargin = 24
                 }
                 onPatternComplete = { drawnCode ->
                     if (storage.verifySecret(drawnCode)) {
