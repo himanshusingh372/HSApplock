@@ -21,20 +21,40 @@ class LockStorage(context: Context) {
 
     enum class AuthType { PIN, PASSWORD, PATTERN }
 
-    fun setCredentials(type: AuthType, rawSecret: String) {
+    // ================= INDEPENDENT CREDENTIALS (PIN + PASSWORD + PATTERN) =================
+    fun setCredentialForType(type: AuthType, rawSecret: String) {
         prefs.edit()
-            .putString("auth_type", type.name)
-            .putString("secret_hash", sha256(rawSecret))
+            .putString("hash_${type.name}", sha256(rawSecret))
+            .putString("default_auth_type", type.name)
             .apply()
     }
 
-    fun getAuthType(): AuthType =
-        AuthType.valueOf(prefs.getString("auth_type", AuthType.PIN.name)!!)
+    fun hasCredential(type: AuthType): Boolean =
+        !prefs.getString("hash_${type.name}", null).isNullOrEmpty()
 
-    fun verifySecret(input: String): Boolean {
-        val saved = prefs.getString("secret_hash", null) ?: return false
+    fun clearCredential(type: AuthType) {
+        prefs.edit().remove("hash_${type.name}").apply()
+    }
+
+    fun verifyCredential(type: AuthType, input: String): Boolean {
+        val saved = prefs.getString("hash_${type.name}", null) ?: return false
         return saved == sha256(input)
     }
+
+    fun getDefaultAuthType(): AuthType {
+        val saved = prefs.getString("default_auth_type", AuthType.PIN.name)!!
+        val type = AuthType.valueOf(saved)
+        if (hasCredential(type)) return type
+        return AuthType.entries.firstOrNull { hasCredential(it) } ?: AuthType.PIN
+    }
+
+    fun getConfiguredAuthTypes(): List<AuthType> =
+        AuthType.entries.filter { hasCredential(it) }
+
+    // ================= MASTER TEMPORARY OFF BUTTON =================
+    var isMasterPaused: Boolean
+        get() = prefs.getBoolean("master_paused", false)
+        set(value) = prefs.edit().putBoolean("master_paused", value).apply()
 
     var isFingerprintEnabled: Boolean
         get() = prefs.getBoolean("biometric_enabled", true)
@@ -56,7 +76,7 @@ class LockStorage(context: Context) {
         get() = prefs.getInt("idle_timeout_sec", 30)
         set(value) = prefs.edit().putInt("idle_timeout_sec", value).apply()
 
-    // App-wise locked packages
+    // ================= PER-APP LISTS =================
     fun getLockedApps(): Set<String> =
         prefs.getStringSet("locked_packages", emptySet()) ?: emptySet()
 
@@ -64,7 +84,6 @@ class LockStorage(context: Context) {
         prefs.edit().putStringSet("locked_packages", packages).apply()
     }
 
-    // App-wise Fake Crash packages
     fun getFakeCrashApps(): Set<String> =
         prefs.getStringSet("fake_crash_packages", emptySet()) ?: emptySet()
 
@@ -72,29 +91,49 @@ class LockStorage(context: Context) {
         prefs.edit().putStringSet("fake_crash_packages", packages).apply()
     }
 
-    // App-wise Internet / Wi-Fi Blocked packages
-    fun getBlockedNetApps(): Set<String> =
-        prefs.getStringSet("blocked_net_packages", emptySet()) ?: emptySet()
+    // Separate Wi-Fi Blocked vs Mobile Data Blocked lists
+    fun getWifiBlockedApps(): Set<String> =
+        prefs.getStringSet("wifi_blocked_packages", emptySet()) ?: emptySet()
 
-    fun setBlockedNetApps(packages: Set<String>) {
-        prefs.edit().putStringSet("blocked_net_packages", packages).apply()
+    fun setWifiBlockedApps(packages: Set<String>) {
+        prefs.edit().putStringSet("wifi_blocked_packages", packages).apply()
     }
 
-    // Hand-sign gesture shortcuts: stores normalized stroke signature -> target packageName
-    fun saveGestureShortcut(signature: String, targetPackage: String) {
-        val map = getGestureShortcuts().toMutableMap()
-        map[signature] = targetPackage
-        val encoded = map.entries.joinToString("||") { "${it.key}::${it.value}" }
-        prefs.edit().putString("gesture_shortcuts", encoded).apply()
+    fun getMobileBlockedApps(): Set<String> =
+        prefs.getStringSet("mobile_blocked_packages", emptySet()) ?: emptySet()
+
+    fun setMobileBlockedApps(packages: Set<String>) {
+        prefs.edit().putStringSet("mobile_blocked_packages", packages).apply()
     }
 
-    fun getGestureShortcuts(): Map<String, String> {
-        val raw = prefs.getString("gesture_shortcuts", "") ?: ""
-        if (raw.isEmpty()) return emptyMap()
-        return raw.split("||").mapNotNull { entry ->
-            val parts = entry.split("::")
-            if (parts.size == 2) parts[0] to parts[1] else null
-        }.toMap()
+    // ================= SAVED HAND-SIGN GESTURES =================
+    // Format: signature -> "label::actionTarget" (actionTarget = package name OR "ACTION_TORCH" / "ACTION_SCREENSHOT")
+    data class GestureBinding(
+        val signature: String,
+        val label: String,
+        val target: String
+    )
+
+    fun saveGestureBinding(signature: String, label: String, target: String) {
+        val list = getAllGestureBindings().filterNot { it.signature == signature }.toMutableList()
+        list.add(GestureBinding(signature, label, target))
+        val encoded = list.joinToString("||") { "${it.signature}::${it.label}::${it.target}" }
+        prefs.edit().putString("gesture_bindings_v2", encoded).apply()
+    }
+
+    fun deleteGestureBinding(signature: String) {
+        val list = getAllGestureBindings().filterNot { it.signature == signature }
+        val encoded = list.joinToString("||") { "${it.signature}::${it.label}::${it.target}" }
+        prefs.edit().putString("gesture_bindings_v2", encoded).apply()
+    }
+
+    fun getAllGestureBindings(): List<GestureBinding> {
+        val raw = prefs.getString("gesture_bindings_v2", "") ?: ""
+        if (raw.isEmpty()) return emptyList()
+        return raw.split("||").mapNotNull { item ->
+            val parts = item.split("::")
+            if (parts.size == 3) GestureBinding(parts[0], parts[1], parts[2]) else null
+        }
     }
 
     private fun sha256(input: String): String {
