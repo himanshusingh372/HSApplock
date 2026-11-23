@@ -397,9 +397,10 @@ class MainActivity : Activity() {
         updateFooter()
     }
 
-    override fun onResume() {
+  override fun onResume() {
         super.onResume()
         checkMandatoryPermissions()
+        AppMonitorService.refreshFloatingBubble()
     }
 
     private fun updateMasterButtonUI() {
@@ -437,16 +438,16 @@ class MainActivity : Activity() {
         return pm.isIgnoringBatteryOptimizations(packageName)
     }
 
-    private fun checkMandatoryPermissions() {
+   private fun checkMandatoryPermissions() {
         if (!isAccessibilityEnabled()) {
             permissionWarningBox.visibility = View.VISIBLE
             permissionWarningText.text = "⚠ ERROR: Mandatory Accessibility Service is OFF."
             fixPermissionBtn.setOnClickListener {
                 startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
             }
-        } else if (storage.isBackgroundBlurEnabled && !Settings.canDrawOverlays(this)) {
+        } else if ((storage.isBackgroundBlurEnabled || storage.isFloatingGestureEnabled) && !Settings.canDrawOverlays(this)) {
             permissionWarningBox.visibility = View.VISIBLE
-            permissionWarningText.text = "⚠ ERROR: Enable 'Display over other apps' for Recents Blur."
+            permissionWarningText.text = "⚠ ERROR: Enable 'Display over other apps' for Floating Gestures & Recents Blur."
             fixPermissionBtn.setOnClickListener {
                 startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
             }
@@ -1253,6 +1254,21 @@ class MainActivity : Activity() {
             }
         }
 
+        val floatingGestureSwitch = Switch(this).apply {
+            text = "\nFloating Edge Gesture Bubble (Access gestures anywhere)"
+            isChecked = storage.isFloatingGestureEnabled
+            setOnCheckedChangeListener { _, checked ->
+                storage.isFloatingGestureEnabled = checked
+                checkMandatoryPermissions()
+                AppMonitorService.refreshFloatingBubble()
+                showAnimatedNotification(
+                    if (checked) "Floating Gesture Bubble: ON" else "Floating Gesture Bubble: OFF",
+                    "#38BDF8",
+                    "#0B1120"
+                )
+            }
+        }
+
         val idleOptions = listOf(
             "Disabled (No idle timeout)" to 0,
             "After 15 seconds" to 15,
@@ -1304,6 +1320,7 @@ class MainActivity : Activity() {
         container.addView(hidePatternSwitch)
         container.addView(lockOnExitSwitch)
         container.addView(bgBlurSwitch)
+        container.addView(floatingGestureSwitch)
         container.addView(idleLabel)
         container.addView(idleSpinner)
         container.addView(bioSwitch)
