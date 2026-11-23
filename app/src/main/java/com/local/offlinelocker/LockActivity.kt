@@ -29,10 +29,10 @@ class LockActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        window.addFlags(WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS)
+        window.addFlags(WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or WindowManager.LayoutParams.FLAG_SECURE)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             window.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
-            window.attributes.blurBehindRadius = 90
+            window.attributes.blurBehindRadius = 95
         }
 
         storage = LockStorage(this)
@@ -44,7 +44,8 @@ class LockActivity : FragmentActivity() {
             }
         })
 
-        if (storage.isFakeCrashEnabled) {
+        // App-wise Fake Crash check
+        if (storage.getFakeCrashApps().contains(targetPackage)) {
             showFakeCrashDialog()
         } else {
             showRealLockScreen()
