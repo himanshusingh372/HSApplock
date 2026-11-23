@@ -44,6 +44,10 @@ class LockStorage(context: Context) {
         get() = prefs.getBoolean("fake_crash_enabled", false)
         set(value) = prefs.edit().putBoolean("fake_crash_enabled", value).apply()
 
+    var relockTimeoutSeconds: Int
+        get() = prefs.getInt("relock_timeout_sec", 30)
+        set(value) = prefs.edit().putInt("relock_timeout_sec", value).apply()
+
     fun getLockedApps(): Set<String> =
         prefs.getStringSet("locked_packages", emptySet()) ?: emptySet()
 
