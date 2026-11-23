@@ -58,7 +58,7 @@ class PatternLockView(context: Context) : View(context) {
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val screenWidth = resources.displayMetrics.widthPixels
-        val defaultSize = (screenWidth * 0.78f).toInt()
+        val defaultSize = (screenWidth * 0.76f).toInt()
         val availableWidth = MeasureSpec.getSize(widthMeasureSpec)
         val size = if (availableWidth > 0) availableWidth.coerceAtMost(defaultSize) else defaultSize
         setMeasuredDimension(size, size)
@@ -68,7 +68,6 @@ class PatternLockView(context: Context) : View(context) {
         super.onDraw(canvas)
         if (width == 0 || height == 0) return
 
-        // Draw lines only when hidePattern is disabled
         if (!hidePattern) {
             for (i in 0 until selectedNodes.size - 1) {
                 val (x1, y1) = getNodeCenter(selectedNodes[i])
@@ -82,7 +81,6 @@ class PatternLockView(context: Context) : View(context) {
             }
         }
 
-        // Draw 9 standard Android lockscreen nodes
         for (i in 0 until 9) {
             val (cx, cy) = getNodeCenter(i)
             val showActive = !hidePattern && selectedNodes.contains(i)
@@ -94,6 +92,8 @@ class PatternLockView(context: Context) : View(context) {
     override fun onTouchEvent(event: MotionEvent): Boolean {
         when (event.action) {
             MotionEvent.ACTION_DOWN -> {
+                // Prevent ScrollView or parent containers from cancelling vertical drags after 2 dots
+                parent?.requestDisallowInterceptTouchEvent(true)
                 selectedNodes.clear()
                 isDrawing = true
                 currentTouchX = event.x
@@ -103,6 +103,7 @@ class PatternLockView(context: Context) : View(context) {
                 return true
             }
             MotionEvent.ACTION_MOVE -> {
+                parent?.requestDisallowInterceptTouchEvent(true)
                 currentTouchX = event.x
                 currentTouchY = event.y
                 checkHit(event.x, event.y)
@@ -110,6 +111,7 @@ class PatternLockView(context: Context) : View(context) {
                 return true
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                parent?.requestDisallowInterceptTouchEvent(false)
                 isDrawing = false
                 if (selectedNodes.isNotEmpty()) {
                     val code = selectedNodes.joinToString("") { (it + 1).toString() }
@@ -124,7 +126,7 @@ class PatternLockView(context: Context) : View(context) {
     }
 
     private fun checkHit(x: Float, y: Float) {
-        val hitRadius = (width / 3f) * 0.36f
+        val hitRadius = (width / 3f) * 0.38f
         for (i in 0 until 9) {
             if (selectedNodes.contains(i)) continue
             val (cx, cy) = getNodeCenter(i)
