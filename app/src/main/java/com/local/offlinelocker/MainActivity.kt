@@ -1001,7 +1001,7 @@ class MainActivity : FragmentActivity() {
         }
     }
 
-    private fun showBanner(message: String, bgHex: String = "#01579B") {
+  private fun showBanner(message: String, bgHex: String = "#01579B") {
         bannerHandler.removeCallbacksAndMessages(null)
         (popupBanner.background as? GradientDrawable)?.setColor(Color.parseColor(bgHex))
         popupBanner.text = message
@@ -1016,13 +1016,14 @@ class MainActivity : FragmentActivity() {
             .setInterpolator(OvershootInterpolator(1.1f))
             .start()
 
-       bannerHandler.postDelayed({
+        bannerHandler.postDelayed({
             popupBanner.animate()
                 .translationY(-140f)
-                .alpha(0f)
+                .alpha(0.0f)
                 .setDuration(220)
                 .withEndAction { popupBanner.visibility = View.GONE }
                 .start()
         }, 1900)
     }
+
 }
