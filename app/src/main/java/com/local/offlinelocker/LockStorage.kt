@@ -70,10 +70,6 @@ class LockStorage(context: Context) {
         get() = prefs.getBoolean("lock_on_exit", true)
         set(value) = prefs.edit().putBoolean("lock_on_exit", value).apply()
 
-    // var isBackgroundBlurEnabled: Boolean
-    //     get() = prefs.getBoolean("bg_blur_enabled", true)
-    //     set(value) = prefs.edit().putBoolean("bg_blur_enabled", value).apply()
-
     var idleTimeoutSeconds: Int
         get() = prefs.getInt("idle_timeout_sec", 30)
         set(value) = prefs.edit().putInt("idle_timeout_sec", value).apply()
