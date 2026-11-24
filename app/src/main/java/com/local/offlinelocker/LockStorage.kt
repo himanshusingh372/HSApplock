@@ -54,6 +54,10 @@ class LockStorage(context: Context) {
         get() = prefs.getBoolean("master_paused", false)
         set(value) = prefs.edit().putBoolean("master_paused", value).apply()
 
+    var isAntiUninstallEnabled: Boolean
+        get() = prefs.getBoolean("anti_uninstall_enabled", false)
+        set(value) = prefs.edit().putBoolean("anti_uninstall_enabled", value).apply()
+
     var isFingerprintEnabled: Boolean
         get() = prefs.getBoolean("biometric_enabled", false)
         set(value) = prefs.edit().putBoolean("biometric_enabled", value).apply()
