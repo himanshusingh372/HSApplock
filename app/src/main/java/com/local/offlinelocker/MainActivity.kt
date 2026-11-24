@@ -38,6 +38,7 @@ class MainActivity : Activity() {
     private lateinit var permissionWarningText: TextView
     private lateinit var fixPermissionBtn: Button
     private lateinit var masterPauseBtn: Button
+    private lateinit var bioQuickBtn: Button
     private lateinit var tabLockedBtn: Button
     private lateinit var tabAllBtn: Button
 
@@ -176,7 +177,29 @@ class MainActivity : Activity() {
             }
         }
 
-        // ================= 3. MANDATORY PERMISSIONS WARNING BANNER =================
+        // ================= 3. QUICK FINGERPRINT / BIOMETRIC BUTTON =================
+        bioQuickBtn = Button(this).apply {
+            typeface = Typeface.DEFAULT_BOLD
+            textSize = 12f
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                setMargins(28, 6, 28, 4)
+            }
+            setOnClickListener {
+                storage.isFingerprintEnabled = !storage.isFingerprintEnabled
+                updateBioQuickButtonUI()
+                showAnimatedNotification(
+                    if (storage.isFingerprintEnabled) "Fingerprint / Face Unlock: ON"
+                    else "Fingerprint / Face Unlock: OFF",
+                    "#38BDF8",
+                    "#0B1120"
+                )
+            }
+        }
+
+        // ================= 4. MANDATORY PERMISSIONS WARNING BANNER =================
         permissionWarningBox = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -218,7 +241,7 @@ class MainActivity : Activity() {
         permissionWarningBox.addView(permissionWarningText)
         permissionWarningBox.addView(fixPermissionBtn)
 
-        // ================= 4. TWO SEPARATE TABS =================
+        // ================= 5. TWO SEPARATE TABS =================
         val tabBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             setPadding(28, 12, 28, 8)
@@ -253,7 +276,7 @@ class MainActivity : Activity() {
         tabBar.addView(tabAllBtn)
         tabBar.addView(tabLockedBtn)
 
-        // ================= 5. SEARCH BAR =================
+        // ================= 6. SEARCH BAR =================
         val searchBox = EditText(this).apply {
             hint = "Search app (WIFI • CELL • CRASH • LOCK)..."
             setSingleLine(true)
@@ -281,7 +304,7 @@ class MainActivity : Activity() {
             })
         }
 
-        // ================= 6. APP LIST =================
+        // ================= 7. APP LIST =================
         listView = ListView(this).apply {
             dividerHeight = 0
             setPadding(20, 0, 20, 14)
@@ -293,7 +316,7 @@ class MainActivity : Activity() {
             )
         }
 
-        // ================= 7. FOOTER =================
+        // ================= 8. FOOTER =================
         val footer = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
@@ -312,13 +335,14 @@ class MainActivity : Activity() {
 
         mainColumn.addView(header)
         mainColumn.addView(masterPauseBtn)
+        mainColumn.addView(bioQuickBtn)
         mainColumn.addView(permissionWarningBox)
         mainColumn.addView(tabBar)
         mainColumn.addView(searchBox)
         mainColumn.addView(listView)
         mainColumn.addView(footer)
 
-        // ================= 8. ANIMATED POPUP NOTIFICATION =================
+        // ================= 9. ANIMATED POPUP NOTIFICATION =================
         popupBanner = TextView(this).apply {
             textSize = 13f
             typeface = Typeface.DEFAULT_BOLD
@@ -345,6 +369,7 @@ class MainActivity : Activity() {
         setContentView(rootFrame)
 
         updateMasterButtonUI()
+        updateBioQuickButtonUI()
         updateTabStyles()
         refreshAppList()
         updateFooter()
@@ -353,6 +378,7 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         checkMandatoryPermissions()
+        updateBioQuickButtonUI()
     }
 
     private fun updateMasterButtonUI() {
@@ -370,6 +396,25 @@ class MainActivity : Activity() {
                 setColor(Color.parseColor("#0F2922"))
                 cornerRadius = 22f
                 setStroke(2, Color.parseColor("#10B981"))
+            }
+        }
+    }
+
+    private fun updateBioQuickButtonUI() {
+        if (storage.isFingerprintEnabled) {
+            bioQuickBtn.text = "👆 FINGERPRINT / FACE UNLOCK: ON — TAP TO TURN OFF"
+            bioQuickBtn.setTextColor(Color.parseColor("#0B1120"))
+            bioQuickBtn.background = GradientDrawable().apply {
+                setColor(Color.parseColor("#38BDF8"))
+                cornerRadius = 22f
+            }
+        } else {
+            bioQuickBtn.text = "👆 FINGERPRINT / FACE UNLOCK: OFF — TAP TO TURN ON"
+            bioQuickBtn.setTextColor(Color.parseColor("#94A3B8"))
+            bioQuickBtn.background = GradientDrawable().apply {
+                setColor(Color.parseColor("#1E293B"))
+                cornerRadius = 22f
+                setStroke(2, Color.parseColor("#334155"))
             }
         }
     }
@@ -393,19 +438,13 @@ class MainActivity : Activity() {
     private fun checkMandatoryPermissions() {
         if (!isAccessibilityEnabled()) {
             permissionWarningBox.visibility = View.VISIBLE
-            permissionWarningText.text = "⚠ ERROR: Mandatory Accessibility Service is OFF."
+            permissionWarningText.text = "⚠ Enable Accessibility Service (On MI phones: App Info → Allow restricted settings & Autostart first)."
             fixPermissionBtn.setOnClickListener {
                 startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
             }
-        } else if (storage.isBackgroundBlurEnabled && !Settings.canDrawOverlays(this)) {
-            permissionWarningBox.visibility = View.VISIBLE
-            permissionWarningText.text = "⚠ ERROR: Enable 'Display over other apps' for Recents Blur."
-            fixPermissionBtn.setOnClickListener {
-                startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
-            }
         } else if (!isIgnoringBatteryOptimizations()) {
             permissionWarningBox.visibility = View.VISIBLE
-            permissionWarningText.text = "⚠ Allow Unrestricted Battery so HS AppLock never stops in background."
+            permissionWarningText.text = "⚠ Set Battery to 'No restrictions' so MI/Android never stops HS AppLock."
             fixPermissionBtn.setOnClickListener {
                 startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName")))
             }
@@ -734,6 +773,24 @@ class MainActivity : Activity() {
             }
         }
 
+        val miAppInfoBtn = Button(this).apply {
+            text = "Open App Info (MIUI Restricted Settings / Autostart)"
+            textSize = 11f
+            setTextColor(Color.parseColor("#38BDF8"))
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#0F172A"))
+                cornerRadius = 18f
+                setStroke(2, Color.parseColor("#38BDF8"))
+            }
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = 12 }
+            setOnClickListener {
+                startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
+            }
+        }
+
         // Section 1: PIN Lock
         val pinHeader = TextView(this).apply {
             text = "\n1. PIN Lock (${if (storage.hasCredential(LockStorage.AuthType.PIN)) "ACTIVE" else "Not Set"}):"
@@ -840,16 +897,6 @@ class MainActivity : Activity() {
             }
         }
 
-        val bgBlurSwitch = Switch(this).apply {
-            text = "\nBlur App in Background / Recents"
-            isChecked = storage.isBackgroundBlurEnabled
-            setOnCheckedChangeListener { _, checked ->
-                storage.isBackgroundBlurEnabled = checked
-                checkMandatoryPermissions()
-                showAnimatedNotification(if (checked) "Recents Blur: ON" else "Recents Blur: OFF", "#38BDF8", "#0B1120")
-            }
-        }
-
         val idleOptions = listOf(
             "Disabled (No idle timeout)" to 0,
             "After 15 seconds" to 15,
@@ -884,11 +931,13 @@ class MainActivity : Activity() {
             isChecked = storage.isFingerprintEnabled
             setOnCheckedChangeListener { _, checked ->
                 storage.isFingerprintEnabled = checked
+                updateBioQuickButtonUI()
                 showAnimatedNotification(if (checked) "Biometric & Device Lock Enabled" else "Biometric Disabled")
             }
         }
 
         container.addView(accessBtn)
+        container.addView(miAppInfoBtn)
         container.addView(pinHeader)
         container.addView(pinInput)
         container.addView(savePinBtn)
@@ -900,7 +949,6 @@ class MainActivity : Activity() {
         container.addView(patternSetupView)
         container.addView(hidePatternSwitch)
         container.addView(lockOnExitSwitch)
-        container.addView(bgBlurSwitch)
         container.addView(idleLabel)
         container.addView(idleSpinner)
         container.addView(bioSwitch)
