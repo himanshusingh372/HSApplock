@@ -309,20 +309,13 @@ class LockActivity : FragmentActivity() {
         }.start()
     }
 
-    private fun triggerFingerprintPrompt() {
-       // In LockActivity.kt -> replace triggerFingerprintPrompt() body with:
-val authenticators = BiometricManager.Authenticators.BIOMETRIC_STRONG or
-    BiometricManager.Authenticators.BIOMETRIC_WEAK or
-    BiometricManager.Authenticators.DEVICE_CREDENTIAL
+private fun triggerFingerprintPrompt() {
+        val biometricManager = BiometricManager.from(this)
+        val authenticators = BiometricManager.Authenticators.BIOMETRIC_STRONG or
+            BiometricManager.Authenticators.BIOMETRIC_WEAK or
+            BiometricManager.Authenticators.DEVICE_CREDENTIAL
 
-val promptInfo = BiometricPrompt.PromptInfo.Builder()
-    .setTitle("Unlock ${getTargetAppLabel()}")
-    .setSubtitle("Use Face Unlock, Fingerprint, or Device PIN/Pattern")
-    .setAllowedAuthenticators(authenticators)
-    .build()
-
-prompt.authenticate(promptInfo)
-        ) return
+        if (biometricManager.canAuthenticate(authenticators) != BiometricManager.BIOMETRIC_SUCCESS) return
 
         val executor = ContextCompat.getMainExecutor(this)
         val prompt = BiometricPrompt(this, executor, object : BiometricPrompt.AuthenticationCallback() {
@@ -334,8 +327,8 @@ prompt.authenticate(promptInfo)
 
         val promptInfo = BiometricPrompt.PromptInfo.Builder()
             .setTitle("Unlock ${getTargetAppLabel()}")
-            .setSubtitle("Touch the Pixel fingerprint sensor")
-            .setNegativeButtonText("Use ${activeAuthMode.name}")
+            .setSubtitle("Use Face Unlock, Fingerprint, or Device PIN/Pattern")
+            .setAllowedAuthenticators(authenticators)
             .build()
 
         prompt.authenticate(promptInfo)
