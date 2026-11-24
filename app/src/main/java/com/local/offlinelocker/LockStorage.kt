@@ -70,10 +70,6 @@ class LockStorage(context: Context) {
         get() = prefs.getBoolean("bg_blur_enabled", true)
         set(value) = prefs.edit().putBoolean("bg_blur_enabled", value).apply()
 
-    var isFloatingGestureEnabled: Boolean
-        get() = prefs.getBoolean("floating_gesture_enabled", true)
-        set(value) = prefs.edit().putBoolean("floating_gesture_enabled", value).apply()
-
     var idleTimeoutSeconds: Int
         get() = prefs.getInt("idle_timeout_sec", 30)
         set(value) = prefs.edit().putInt("idle_timeout_sec", value).apply()
@@ -104,34 +100,6 @@ class LockStorage(context: Context) {
 
     fun setMobileBlockedApps(packages: Set<String>) {
         prefs.edit().putStringSet("mobile_blocked_packages", packages).apply()
-    }
-
-    data class GestureBinding(
-        val signature: String,
-        val label: String,
-        val target: String
-    )
-
-    fun saveGestureBinding(signature: String, label: String, target: String) {
-        val list = getAllGestureBindings().filterNot { it.signature == signature }.toMutableList()
-        list.add(GestureBinding(signature, label, target))
-        val encoded = list.joinToString("||") { "${it.signature}::${it.label}::${it.target}" }
-        prefs.edit().putString("gesture_bindings_v2", encoded).apply()
-    }
-
-    fun deleteGestureBinding(signature: String) {
-        val list = getAllGestureBindings().filterNot { it.signature == signature }
-        val encoded = list.joinToString("||") { "${it.signature}::${it.label}::${it.target}" }
-        prefs.edit().putString("gesture_bindings_v2", encoded).apply()
-    }
-
-    fun getAllGestureBindings(): List<GestureBinding> {
-        val raw = prefs.getString("gesture_bindings_v2", "") ?: ""
-        if (raw.isEmpty()) return emptyList()
-        return raw.split("||").mapNotNull { item ->
-            val parts = item.split("::")
-            if (parts.size == 3) GestureBinding(parts[0], parts[1], parts[2]) else null
-        }
     }
 
     private fun sha256(input: String): String {
