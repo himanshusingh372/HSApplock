@@ -677,10 +677,14 @@ class MainActivity : FragmentActivity() {
     // ================= DEDICATED SETTINGS PAGE =================
     private fun buildSettingsPage(): ScrollView {
         val scroll = ScrollView(this).apply {
-            layoutParams = FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.MATCH_PARENT
-            )
+           layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                gravity = Gravity.CENTER_HORIZONTAL
+                topMargin = 12
+                bottomMargin = 12
+            }
         }
 
         val container = LinearLayout(this).apply {
