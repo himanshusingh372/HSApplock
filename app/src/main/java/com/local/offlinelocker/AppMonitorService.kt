@@ -62,7 +62,10 @@ class AppMonitorService : AccessibilityService() {
             instance?.syncFloatingBubbleState()
         }
 
-        override fun onGesture(gestureEvent: AccessibilityGestureEvent): Boolean {
+  
+    }
+
+          override fun onGesture(gestureEvent: AccessibilityGestureEvent): Boolean {
     when (gestureEvent.gestureId) {
         GESTURE_3_FINGER_SWIPE_DOWN -> {
             triggerSystemScreenshot()
@@ -82,7 +85,6 @@ class AppMonitorService : AccessibilityService() {
     }
     return super.onGesture(gestureEvent)
 }
-    }
 
     private val idleCheckRunnable = object : Runnable {
         override fun run() {
