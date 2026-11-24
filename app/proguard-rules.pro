@@ -6,6 +6,8 @@
 # Keep custom Views and Android components referenced in Manifest
 -keep class com.local.offlinelocker.PatternLockView { *; }
 -keep class com.local.offlinelocker.AppMonitorService { *; }
+-keep class com.local.offlinelocker.AppFirewallVpnService { *; }
+-keep class com.local.offlinelocker.BootReceiver { *; }
 -keep class com.local.offlinelocker.LockActivity { *; }
 -keep class com.local.offlinelocker.MainActivity { *; }
 
