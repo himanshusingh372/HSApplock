@@ -852,12 +852,13 @@ class MainActivity : Activity() {
         val secondaryProfile = userManager.userProfiles.firstOrNull { it != android.os.Process.myUserHandle() }
 
         if (secondaryProfile != null) {
-            val activities = launcherApps.getActivityList(app.packageName, secondaryProfile)
-            if (activities.isNotEmpty()) {
-                launcherApps.startMainActivity(activities[0].componentName, secondaryProfile, null, null)
-                showAnimatedNotification("Launched Isolated Clone of ${app.name}!", "#A78BFA", "#0B1120")
-                return
-            }
+         // In MainActivity.kt -> inside createAppClone(), if secondaryProfile == null:
+Toast.makeText(
+    this,
+    "Enable Android 'Private Space' in Settings > Security & privacy to run isolated app clones.",
+    Toast.LENGTH_LONG
+).show()
+startActivity(Intent(Settings.ACTION_SECURITY_SETTINGS))
         }
 
         // 2. Pin an independent Cloned App shortcut ("App (Clone)") with separate instance launch flags
