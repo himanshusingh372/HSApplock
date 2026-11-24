@@ -6,23 +6,16 @@ import android.app.AlertDialog
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.content.pm.LauncherApps
-import android.content.pm.ShortcutInfo
-import android.content.pm.ShortcutManager
-import android.graphics.Bitmap
-import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
-import android.graphics.drawable.Icon
 import android.net.Uri
 import android.net.VpnService
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
-import android.os.UserManager
 import android.provider.Settings
 import android.text.Editable
 import android.text.InputType
@@ -99,11 +92,11 @@ class MainActivity : Activity() {
         val statusBarHeight = if (statusBarResId > 0) resources.getDimensionPixelSize(statusBarResId) else 80
         val safeTopPadding = statusBarHeight + 52
 
-        // ================= 1. HEADER (CLONE + GESTURE + SETTINGS) =================
+        // ================= 1. HEADER =================
         val header = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(32, safeTopPadding, 28, 28)
+            setPadding(36, safeTopPadding, 32, 32)
             background = GradientDrawable(
                 GradientDrawable.Orientation.LEFT_RIGHT,
                 intArrayOf(Color.parseColor("#0F172A"), Color.parseColor("#1E293B"))
@@ -117,9 +110,9 @@ class MainActivity : Activity() {
                 shape = GradientDrawable.OVAL
                 setColor(Color.parseColor("#2610B981"))
             }
-            setPadding(14, 14, 14, 14)
-            layoutParams = LinearLayout.LayoutParams(74, 74).apply {
-                rightMargin = 16
+            setPadding(16, 16, 16, 16)
+            layoutParams = LinearLayout.LayoutParams(80, 80).apply {
+                rightMargin = 20
             }
         }
 
@@ -130,58 +123,20 @@ class MainActivity : Activity() {
 
         val headerTitle = TextView(this).apply {
             text = "HS AppLock"
-            textSize = 18f
+            textSize = 20f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(Color.parseColor("#F8FAFC"))
         }
 
         val headerSub = TextView(this).apply {
-            text = "v3.0 Vault & Firewall"
-            textSize = 11f
+            text = "Security Vault & Firewall"
+            textSize = 12f
             setTextColor(Color.parseColor("#10B981"))
         }
 
         titleBox.addView(headerTitle)
         titleBox.addView(headerSub)
 
-        // CLONE Icon Button (Near + icon)
-        val cloneBtn = TextView(this).apply {
-            text = "CLONE"
-            textSize = 10f
-            typeface = Typeface.DEFAULT_BOLD
-            gravity = Gravity.CENTER
-            setTextColor(Color.parseColor("#A78BFA"))
-            background = GradientDrawable().apply {
-                setColor(Color.parseColor("#2E1065"))
-                cornerRadius = 24f
-                setStroke(2, Color.parseColor("#A78BFA"))
-            }
-            setPadding(20, 22, 20, 22)
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { rightMargin = 12 }
-            setOnClickListener { openCloneStudioDialog() }
-        }
-
-        // PLUS (+) Icon Button for Hand-Sign Gestures
-        val gesturePlusBtn = ImageButton(this).apply {
-            setImageResource(android.R.drawable.ic_input_add)
-            setColorFilter(Color.parseColor("#38BDF8"))
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.OVAL
-                setColor(Color.parseColor("#1E3A5F"))
-                setStroke(2, Color.parseColor("#38BDF8"))
-            }
-            setPadding(20, 20, 20, 20)
-            layoutParams = LinearLayout.LayoutParams(92, 92).apply {
-                rightMargin = 12
-            }
-            contentDescription = "Hand Sign Gestures"
-            setOnClickListener { openGestureStudioDialog() }
-        }
-
-        // SETTINGS Icon Button
         val settingsBtn = ImageButton(this).apply {
             setImageResource(android.R.drawable.ic_menu_preferences)
             setColorFilter(Color.parseColor("#F8FAFC"))
@@ -189,16 +144,14 @@ class MainActivity : Activity() {
                 shape = GradientDrawable.OVAL
                 setColor(Color.parseColor("#334155"))
             }
-            setPadding(20, 20, 20, 20)
-            layoutParams = LinearLayout.LayoutParams(92, 92)
+            setPadding(24, 24, 24, 24)
+            layoutParams = LinearLayout.LayoutParams(100, 100)
             contentDescription = "Settings"
             setOnClickListener { openSettingsDialog() }
         }
 
         header.addView(lockHeaderIcon)
         header.addView(titleBox)
-        header.addView(cloneBtn)
-        header.addView(gesturePlusBtn)
         header.addView(settingsBtn)
 
         // ================= 2. MASTER TEMPORARY OFF BUTTON =================
@@ -397,10 +350,9 @@ class MainActivity : Activity() {
         updateFooter()
     }
 
-  override fun onResume() {
+    override fun onResume() {
         super.onResume()
         checkMandatoryPermissions()
-        AppMonitorService.refreshFloatingBubble()
     }
 
     private fun updateMasterButtonUI() {
@@ -438,16 +390,16 @@ class MainActivity : Activity() {
         return pm.isIgnoringBatteryOptimizations(packageName)
     }
 
-   private fun checkMandatoryPermissions() {
+    private fun checkMandatoryPermissions() {
         if (!isAccessibilityEnabled()) {
             permissionWarningBox.visibility = View.VISIBLE
             permissionWarningText.text = "⚠ ERROR: Mandatory Accessibility Service is OFF."
             fixPermissionBtn.setOnClickListener {
                 startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
             }
-        } else if ((storage.isBackgroundBlurEnabled || storage.isFloatingGestureEnabled) && !Settings.canDrawOverlays(this)) {
+        } else if (storage.isBackgroundBlurEnabled && !Settings.canDrawOverlays(this)) {
             permissionWarningBox.visibility = View.VISIBLE
-            permissionWarningText.text = "⚠ ERROR: Enable 'Display over other apps' for Floating Gestures & Recents Blur."
+            permissionWarningText.text = "⚠ ERROR: Enable 'Display over other apps' for Recents Blur."
             fixPermissionBtn.setOnClickListener {
                 startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
             }
@@ -755,365 +707,7 @@ class MainActivity : Activity() {
         }
     }
 
-    // ================= CLONE STUDIO DIALOG (NEAR + ICON) =================
-    private fun openCloneStudioDialog() {
-        val container = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(40, 28, 40, 28)
-        }
-
-        val info = TextView(this).apply {
-            text = "Create a cloned app instance on your Home Screen or launch inside an isolated Android Work / Private Space profile:"
-            textSize = 13f
-            setPadding(0, 0, 0, 16)
-        }
-
-        val searchCloneInput = EditText(this).apply {
-            hint = "Search app to clone..."
-            setSingleLine(true)
-        }
-
-        val cloneListView = ListView(this).apply {
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                680
-            )
-        }
-
-        var filtered = allLaunchableApps
-        fun updateCloneList() {
-            cloneListView.adapter = object : BaseAdapter() {
-                override fun getCount(): Int = filtered.size
-                override fun getItem(pos: Int): Any = filtered[pos]
-                override fun getItemId(pos: Int): Long = pos.toLong()
-                override fun getView(pos: Int, convertView: View?, parent: ViewGroup?): View {
-                    val item = filtered[pos]
-                    val row = LinearLayout(this@MainActivity).apply {
-                        orientation = LinearLayout.HORIZONTAL
-                        gravity = Gravity.CENTER_VERTICAL
-                        setPadding(16, 16, 16, 16)
-                    }
-                    val icon = ImageView(this@MainActivity).apply {
-                        setImageDrawable(item.icon)
-                        layoutParams = LinearLayout.LayoutParams(76, 76).apply { rightMargin = 20 }
-                    }
-                    val label = TextView(this@MainActivity).apply {
-                        text = item.name
-                        textSize = 15f
-                        typeface = Typeface.DEFAULT_BOLD
-                        layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-                    }
-                    val actionBtn = Button(this@MainActivity).apply {
-                        text = "Clone"
-                        setTextColor(Color.WHITE)
-                        background = GradientDrawable().apply {
-                            setColor(Color.parseColor("#7C3AED"))
-                            cornerRadius = 18f
-                        }
-                        setOnClickListener {
-                            createAppClone(item)
-                        }
-                    }
-                    row.addView(icon)
-                    row.addView(label)
-                    row.addView(actionBtn)
-                    return row
-                }
-            }
-        }
-
-        searchCloneInput.addTextChangedListener(object : TextWatcher {
-            override fun afterTextChanged(s: Editable?) {
-                val q = s?.toString()?.trim()?.lowercase() ?: ""
-                filtered = if (q.isEmpty()) allLaunchableApps
-                else allLaunchableApps.filter { it.name.lowercase().contains(q) }
-                updateCloneList()
-            }
-            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
-            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
-        })
-
-        updateCloneList()
-        container.addView(info)
-        container.addView(searchCloneInput)
-        container.addView(cloneListView)
-
-        AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
-            .setTitle("App Cloner Studio")
-            .setView(container)
-            .setPositiveButton("Close", null)
-            .show()
-    }
-
-    private fun createAppClone(app: AppEntry) {
-        // 1. Check if secondary Android Work / Private Space profile exists to launch isolated instance
-        val userManager = getSystemService(Context.USER_SERVICE) as UserManager
-        val launcherApps = getSystemService(Context.LAUNCHER_APPS_SERVICE) as LauncherApps
-        val secondaryProfile = userManager.userProfiles.firstOrNull { it != android.os.Process.myUserHandle() }
-
-        if (secondaryProfile != null) {
-         // In MainActivity.kt -> inside createAppClone(), if secondaryProfile == null:
-Toast.makeText(
-    this,
-    "Enable Android 'Private Space' in Settings > Security & privacy to run isolated app clones.",
-    Toast.LENGTH_LONG
-).show()
-startActivity(Intent(Settings.ACTION_SECURITY_SETTINGS))
-        }
-
-        // 2. Pin an independent Cloned App shortcut ("App (Clone)") with separate instance launch flags
-        val shortcutManager = getSystemService(ShortcutManager::class.java)
-        if (shortcutManager != null && shortcutManager.isRequestPinShortcutSupported) {
-            val launchIntent = packageManager.getLaunchIntentForPackage(app.packageName)?.apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_DOCUMENT or Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
-            } ?: return
-
-            val bitmap = Bitmap.createBitmap(108, 108, Bitmap.Config.ARGB_8888)
-            val canvas = Canvas(bitmap)
-            app.icon.setBounds(0, 0, 108, 108)
-            app.icon.draw(canvas)
-
-            val pinShortcutInfo = ShortcutInfo.Builder(this, "clone_${app.packageName}_${System.currentTimeMillis()}")
-                .setShortLabel("${app.name} (Clone)")
-                .setIcon(Icon.createWithBitmap(bitmap))
-                .setIntent(launchIntent)
-                .build()
-
-            shortcutManager.requestPinShortcut(pinShortcutInfo, null)
-            showAnimatedNotification("Cloned '${app.name} (Clone)' Added to Home!", "#A78BFA", "#0B1120")
-        } else {
-            Toast.makeText(this, "Launcher does not support pinned clones", Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    // ================= PLUS (+) GESTURE STUDIO (TORCH + SCREENSHOT + APPS + SAVED LIST) =================
-    private fun openGestureStudioDialog() {
-        val scroll = ScrollView(this)
-        val container = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(36, 24, 36, 24)
-        }
-
-        // Target list includes Torch, Screenshot, and all installed apps
-        val actionTargets = mutableListOf(
-            Triple("🔦 Toggle Flashlight / Torch", "ACTION_TORCH", "Torch Toggle"),
-            Triple("📸 Take System Screenshot", "ACTION_SCREENSHOT", "Screenshot")
-        )
-        allLaunchableApps.forEach {
-            actionTargets.add(Triple("📱 Launch ${it.name}", it.packageName, it.name))
-        }
-
-        val targetSpinner = Spinner(this).apply {
-            adapter = ArrayAdapter(
-                this@MainActivity,
-                android.R.layout.simple_spinner_dropdown_item,
-                actionTargets.map { it.first }
-            )
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { bottomMargin = 12 }
-        }
-
-        var lastDrawnSignature: String? = null
-        val statusLabel = TextView(this).apply {
-            text = "Draw a hand sign below to test an existing gesture or save a new one:"
-            textSize = 12f
-            typeface = Typeface.DEFAULT_BOLD
-            gravity = Gravity.CENTER
-            setPadding(0, 6, 0, 10)
-        }
-
-        val savedListContainer = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            )
-        }
-
-        var gestureSearchQuery = ""
-        fun renderSavedGestures() {
-            savedListContainer.removeAllViews()
-            val allSaved = storage.getAllGestureBindings().filter {
-                gestureSearchQuery.isEmpty() || it.label.lowercase().contains(gestureSearchQuery)
-            }
-
-            if (allSaved.isEmpty()) {
-                val emptyTxt = TextView(this).apply {
-                    text = "No saved gestures yet."
-                    textSize = 12f
-                    setPadding(0, 12, 0, 12)
-                }
-                savedListContainer.addView(emptyTxt)
-                return
-            }
-
-            for (binding in allSaved) {
-                val itemRow = LinearLayout(this).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    gravity = Gravity.CENTER_VERTICAL
-                    setPadding(16, 12, 16, 12)
-                    background = GradientDrawable().apply {
-                        setColor(Color.parseColor("#1E293B"))
-                        cornerRadius = 16f
-                    }
-                    layoutParams = LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT,
-                        LinearLayout.LayoutParams.WRAP_CONTENT
-                    ).apply { bottomMargin = 8 }
-                }
-
-                val txt = TextView(this).apply {
-                    text = "${binding.label}\nSign: ${binding.signature}"
-                    textSize = 12f
-                    setTextColor(Color.WHITE)
-                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-                }
-
-                val delBtn = TextView(this).apply {
-                    text = "DELETE"
-                    textSize = 10f
-                    typeface = Typeface.DEFAULT_BOLD
-                    setTextColor(Color.parseColor("#EF4444"))
-                    setPadding(14, 10, 14, 10)
-                    setOnClickListener {
-                        storage.deleteGestureBinding(binding.signature)
-                        renderSavedGestures()
-                        showAnimatedNotification("Gesture Deleted", "#F59E0B", "#0B1120")
-                    }
-                }
-
-                itemRow.addView(txt)
-                itemRow.addView(delBtn)
-                savedListContainer.addView(itemRow)
-            }
-        }
-
-        val gestureView = HandGestureView(this).apply {
-            onGestureDrawn = { signature ->
-                lastDrawnSignature = signature
-                val matched = storage.getAllGestureBindings().firstOrNull { it.signature == signature }
-                if (matched != null) {
-                    executeGestureTarget(matched.target, matched.label)
-                } else {
-                    statusLabel.text = "New Sign ($signature) — Tap 'Save Gesture'!"
-                }
-            }
-        }
-
-        val btnRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            setPadding(0, 12, 0, 16)
-        }
-
-        val clearBtn = Button(this).apply {
-            text = "Clear"
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-                rightMargin = 8
-            }
-            setOnClickListener {
-                lastDrawnSignature = null
-                gestureView.clearCanvas()
-                statusLabel.text = "Draw a hand sign below:"
-            }
-        }
-
-        val saveGestureBtn = Button(this).apply {
-            text = "Save Gesture"
-            setTextColor(Color.parseColor("#06130E"))
-            typeface = Typeface.DEFAULT_BOLD
-            background = GradientDrawable().apply {
-                setColor(Color.parseColor("#38BDF8"))
-                cornerRadius = 18f
-            }
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-                leftMargin = 8
-            }
-            setOnClickListener {
-                val sig = lastDrawnSignature
-                if (sig.isNullOrEmpty()) {
-                    Toast.makeText(this@MainActivity, "Draw a sign first!", Toast.LENGTH_SHORT).show()
-                } else {
-                    val selected = actionTargets[targetSpinner.selectedItemPosition]
-                    storage.saveGestureBinding(sig, selected.third, selected.second)
-                    gestureView.clearCanvas()
-                    lastDrawnSignature = null
-                    renderSavedGestures()
-                    showAnimatedNotification("Saved Gesture: ${selected.third}", "#38BDF8", "#0B1120")
-                }
-            }
-        }
-
-        btnRow.addView(clearBtn)
-        btnRow.addView(saveGestureBtn)
-
-        val savedHeader = TextView(this).apply {
-            text = "Saved Gestures:"
-            typeface = Typeface.DEFAULT_BOLD
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            )
-        }
-
-        val gestureSearchBox = EditText(this).apply {
-            hint = "Search saved gestures..."
-            setSingleLine(true)
-            addTextChangedListener(object : TextWatcher {
-                override fun afterTextChanged(s: Editable?) {
-                    gestureSearchQuery = s?.toString()?.trim()?.lowercase() ?: ""
-                    renderSavedGestures()
-                }
-                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
-                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
-            })
-        }
-
-        renderSavedGestures()
-
-        container.addView(targetSpinner)
-        container.addView(statusLabel)
-        container.addView(gestureView)
-        container.addView(btnRow)
-        container.addView(savedHeader)
-        container.addView(gestureSearchBox)
-        container.addView(savedListContainer)
-        scroll.addView(container)
-
-        AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
-            .setTitle("+ Hand-Sign Gestures & Actions")
-            .setView(scroll)
-            .setPositiveButton("Close", null)
-            .show()
-    }
-
-    private fun executeGestureTarget(target: String, label: String) {
-        when (target) {
-            "ACTION_TORCH" -> {
-                val ok = AppMonitorService.toggleTorch(this)
-                showAnimatedNotification(if (ok) "Torch Toggled!" else "Torch Unavailable")
-            }
-            "ACTION_SCREENSHOT" -> {
-                val ok = AppMonitorService.triggerSystemScreenshot()
-                if (!ok) {
-                    Toast.makeText(this, "Enable Accessibility Service for Screenshot gesture", Toast.LENGTH_SHORT).show()
-                } else {
-                    showAnimatedNotification("Screenshot Captured!")
-                }
-            }
-            else -> {
-                val launch = packageManager.getLaunchIntentForPackage(target)
-                if (launch != null) {
-                    showAnimatedNotification("Launching $label")
-                    startActivity(launch)
-                }
-            }
-        }
-    }
-
-    // ================= SETTINGS DIALOG (SIMULTANEOUS PIN + PATTERN + PASSWORD) =================
+    // ================= SETTINGS DIALOG =================
     private fun openSettingsDialog() {
         val scroll = ScrollView(this)
         val container = LinearLayout(this).apply {
@@ -1140,7 +734,7 @@ startActivity(Intent(Settings.ACTION_SECURITY_SETTINGS))
             }
         }
 
-        // Section 1: Set PIN independently
+        // Section 1: PIN Lock
         val pinHeader = TextView(this).apply {
             text = "\n1. PIN Lock (${if (storage.hasCredential(LockStorage.AuthType.PIN)) "ACTIVE" else "Not Set"}):"
             typeface = Typeface.DEFAULT_BOLD
@@ -1161,12 +755,12 @@ startActivity(Intent(Settings.ACTION_SECURITY_SETTINGS))
                     pinInput.text.clear()
                     pinHeader.text = "\n1. PIN Lock (ACTIVE):"
                     updateFooter()
-                    showAnimatedNotification("PIN Saved (Active alongside Pattern/Password)!")
+                    showAnimatedNotification("PIN Saved!")
                 } else Toast.makeText(this@MainActivity, "Min 4 digits", Toast.LENGTH_SHORT).show()
             }
         }
 
-        // Section 2: Set Password independently
+        // Section 2: Password Lock
         val passHeader = TextView(this).apply {
             text = "\n2. Password Lock (${if (storage.hasCredential(LockStorage.AuthType.PASSWORD)) "ACTIVE" else "Not Set"}):"
             typeface = Typeface.DEFAULT_BOLD
@@ -1187,12 +781,12 @@ startActivity(Intent(Settings.ACTION_SECURITY_SETTINGS))
                     passInput.text.clear()
                     passHeader.text = "\n2. Password Lock (ACTIVE):"
                     updateFooter()
-                    showAnimatedNotification("Password Saved (Active alongside PIN/Pattern)!")
+                    showAnimatedNotification("Password Saved!")
                 } else Toast.makeText(this@MainActivity, "Min 4 characters", Toast.LENGTH_SHORT).show()
             }
         }
 
-        // Section 3: Set 3x3 Pattern independently
+        // Section 3: Compact 3x3 Pattern Lock
         val patternHeader = TextView(this).apply {
             text = "\n3. Pattern Lock (${if (storage.hasCredential(LockStorage.AuthType.PATTERN)) "ACTIVE" else "Not Set"}):"
             typeface = Typeface.DEFAULT_BOLD
@@ -1219,7 +813,7 @@ startActivity(Intent(Settings.ACTION_SECURITY_SETTINGS))
                     patternHeader.text = "\n3. Pattern Lock (ACTIVE):"
                     patternPromptText.text = "Pattern saved! Draw again to update:"
                     updateFooter()
-                    showAnimatedNotification("Pattern Saved (Active alongside PIN/Password)!")
+                    showAnimatedNotification("Pattern Saved!")
                 } else {
                     firstPatternAttempt = null
                     patternPromptText.text = "Didn't match. Draw pattern again:"
@@ -1256,21 +850,6 @@ startActivity(Intent(Settings.ACTION_SECURITY_SETTINGS))
             }
         }
 
-        val floatingGestureSwitch = Switch(this).apply {
-            text = "\nFloating Edge Gesture Bubble (Access gestures anywhere)"
-            isChecked = storage.isFloatingGestureEnabled
-            setOnCheckedChangeListener { _, checked ->
-                storage.isFloatingGestureEnabled = checked
-                checkMandatoryPermissions()
-                AppMonitorService.refreshFloatingBubble()
-                showAnimatedNotification(
-                    if (checked) "Floating Gesture Bubble: ON" else "Floating Gesture Bubble: OFF",
-                    "#38BDF8",
-                    "#0B1120"
-                )
-            }
-        }
-
         val idleOptions = listOf(
             "Disabled (No idle timeout)" to 0,
             "After 15 seconds" to 15,
@@ -1301,11 +880,11 @@ startActivity(Intent(Settings.ACTION_SECURITY_SETTINGS))
         }
 
         val bioSwitch = Switch(this).apply {
-            text = "\nFingerprint Biometric Unlock"
+            text = "\nFace Unlock / Fingerprint / System Lock"
             isChecked = storage.isFingerprintEnabled
             setOnCheckedChangeListener { _, checked ->
                 storage.isFingerprintEnabled = checked
-                showAnimatedNotification(if (checked) "Fingerprint Enabled" else "Fingerprint Disabled")
+                showAnimatedNotification(if (checked) "Biometric & Device Lock Enabled" else "Biometric Disabled")
             }
         }
 
@@ -1322,7 +901,6 @@ startActivity(Intent(Settings.ACTION_SECURITY_SETTINGS))
         container.addView(hidePatternSwitch)
         container.addView(lockOnExitSwitch)
         container.addView(bgBlurSwitch)
-        container.addView(floatingGestureSwitch)
         container.addView(idleLabel)
         container.addView(idleSpinner)
         container.addView(bioSwitch)
