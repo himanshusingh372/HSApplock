@@ -1,8 +1,7 @@
 package com.local.offlinelocker
 
 import android.accessibilityservice.AccessibilityServiceInfo
-import android.app.Activity
-import android.app.AlertDialog
+import android.app.admin.DevicePolicyManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -27,29 +26,58 @@ import android.view.WindowManager
 import android.view.accessibility.AccessibilityManager
 import android.view.animation.OvershootInterpolator
 import android.widget.*
+import androidx.activity.OnBackPressedCallback
+import androidx.fragment.app.FragmentActivity
 
-class MainActivity : Activity() {
+class MainActivity : FragmentActivity() {
 
     private lateinit var storage: LockStorage
-    private lateinit var listView: ListView
-    private lateinit var footerText: TextView
-    private lateinit var popupBanner: TextView
-    private lateinit var permissionWarningBox: LinearLayout
-    private lateinit var permissionWarningText: TextView
-    private lateinit var fixPermissionBtn: Button
-    private lateinit var masterPauseBtn: Button
-    private lateinit var bioQuickBtn: Button
-    private lateinit var tabLockedBtn: Button
-    private lateinit var tabAllBtn: Button
+    private lateinit var dpm: DevicePolicyManager
+    private lateinit var adminComponent: ComponentName
 
-    private var showingLockedOnly = false
+    private lateinit var topLockBtn: ImageButton
+    private lateinit var tabSettingsText: TextView
+    private lateinit var tabLockedText: TextView
+    private lateinit var tabNetText: TextView
+    private lateinit var tabSettingsIndicator: View
+    private lateinit var tabLockedIndicator: View
+    private lateinit var tabNetIndicator: View
+
+    private lateinit var permissionBanner: LinearLayout
+    private lateinit var permissionBannerText: TextView
+    private lateinit var permissionFixBtn: Button
+
+    private lateinit var pageSettingsView: ScrollView
+    private lateinit var pageAppsContainer: LinearLayout
+    private lateinit var searchBox: EditText
+    private lateinit var listView: ListView
+    private lateinit var emptyStateText: TextView
+    private lateinit var fabAddBtn: ImageButton
+    private lateinit var popupBanner: TextView
+
+    private lateinit var bioSwitchRef: Switch
+    private lateinit var masterPauseSwitchRef: Switch
+    private lateinit var antiUninstallSwitchRef: Switch
+
+    private enum class Page { SETTINGS, LOCKED_APP, NET_GUARDED, ALL_APPS }
+    private var currentPage = Page.LOCKED_APP
     private var searchQuery = ""
+
     private var allLaunchableApps: List<AppEntry> = emptyList()
     private var displayedApps: List<AppEntry> = emptyList()
     private val bannerHandler = Handler(Looper.getMainLooper())
 
     companion object {
         private const val REQ_VPN_PERMISSION = 101
+        private const val REQ_DEVICE_ADMIN = 102
+        private const val REQ_DISABLE_UNINSTALL_AUTH = 103
+
+        private val COLOR_PRIMARY_BLUE = Color.parseColor("#0277BD")
+        private val COLOR_DARK_BLUE = Color.parseColor("#01579B")
+        private val COLOR_ACCENT_YELLOW = Color.parseColor("#FDD835")
+        private val COLOR_BG_LIGHT = Color.parseColor("#F4F6F9")
+        private val COLOR_TEXT_DARK = Color.parseColor("#1E293B")
+        private val COLOR_TEXT_MUTED = Color.parseColor("#64748B")
     }
 
     data class AppEntry(
@@ -61,7 +89,21 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        window.statusBarColor = COLOR_DARK_BLUE
+
         storage = LockStorage(this)
+        dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
+        adminComponent = ComponentName(this, VaultDeviceAdminReceiver::class.java)
+
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                if (currentPage == Page.ALL_APPS) {
+                    switchToPage(Page.LOCKED_APP)
+                } else {
+                    finish()
+                }
+            }
+        })
 
         allLaunchableApps = packageManager.getInstalledApplications(0)
             .filter {
@@ -78,7 +120,7 @@ class MainActivity : Activity() {
             .sortedBy { it.name.lowercase() }
 
         val rootFrame = FrameLayout(this).apply {
-            setBackgroundColor(Color.parseColor("#0B1120"))
+            setBackgroundColor(COLOR_BG_LIGHT)
         }
 
         val mainColumn = LinearLayout(this).apply {
@@ -90,209 +132,157 @@ class MainActivity : Activity() {
         }
 
         val statusBarResId = resources.getIdentifier("status_bar_height", "dimen", "android")
-        val statusBarHeight = if (statusBarResId > 0) resources.getDimensionPixelSize(statusBarResId) else 80
-        val safeTopPadding = statusBarHeight + 52
+        val statusBarHeight = if (statusBarResId > 0) resources.getDimensionPixelSize(statusBarResId) else 72
 
-        // ================= 1. HEADER =================
-        val header = LinearLayout(this).apply {
+        // ================= 1. BLUE TOP APP BAR =================
+        val appBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(36, safeTopPadding, 32, 32)
-            background = GradientDrawable(
-                GradientDrawable.Orientation.LEFT_RIGHT,
-                intArrayOf(Color.parseColor("#0F172A"), Color.parseColor("#1E293B"))
-            )
+            setBackgroundColor(COLOR_PRIMARY_BLUE)
+            setPadding(40, statusBarHeight + 28, 36, 20)
         }
 
-        val lockHeaderIcon = ImageView(this).apply {
-            setImageResource(android.R.drawable.ic_lock_idle_lock)
-            setColorFilter(Color.parseColor("#10B981"))
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.OVAL
-                setColor(Color.parseColor("#2610B981"))
-            }
-            setPadding(16, 16, 16, 16)
-            layoutParams = LinearLayout.LayoutParams(80, 80).apply {
-                rightMargin = 20
+        val shieldIcon = ImageView(this).apply {
+            setImageResource(android.R.drawable.ic_secure)
+            setColorFilter(Color.WHITE)
+            layoutParams = LinearLayout.LayoutParams(68, 68).apply {
+                rightMargin = 24
             }
         }
 
-        val titleBox = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
+        val appTitle = TextView(this).apply {
+            text = "HS AppLock"
+            textSize = 21f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.WHITE)
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         }
 
-        val headerTitle = TextView(this).apply {
-            text = "HS AppLock"
-            textSize = 20f
-            typeface = Typeface.DEFAULT_BOLD
-            setTextColor(Color.parseColor("#F8FAFC"))
-        }
-
-        val headerSub = TextView(this).apply {
-            text = "Security Vault & Firewall"
-            textSize = 12f
-            setTextColor(Color.parseColor("#10B981"))
-        }
-
-        titleBox.addView(headerTitle)
-        titleBox.addView(headerSub)
-
-        val settingsBtn = ImageButton(this).apply {
-            setImageResource(android.R.drawable.ic_menu_preferences)
-            setColorFilter(Color.parseColor("#F8FAFC"))
+        // Top-Right Lock Icon = Anti-Uninstall Restriction Toggle (Requires Password to Disable)
+        topLockBtn = ImageButton(this).apply {
+            setImageResource(android.R.drawable.ic_lock_idle_lock)
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
-                setColor(Color.parseColor("#334155"))
+                setColor(Color.parseColor("#26FFFFFF"))
             }
-            setPadding(24, 24, 24, 24)
-            layoutParams = LinearLayout.LayoutParams(100, 100)
-            contentDescription = "Settings"
-            setOnClickListener { openSettingsDialog() }
+            setPadding(20, 20, 20, 20)
+            layoutParams = LinearLayout.LayoutParams(96, 96)
+            contentDescription = "Anti-Uninstall Restriction"
+            setOnClickListener { toggleAntiUninstallRestriction() }
         }
 
-        header.addView(lockHeaderIcon)
-        header.addView(titleBox)
-        header.addView(settingsBtn)
+        appBar.addView(shieldIcon)
+        appBar.addView(appTitle)
+        appBar.addView(topLockBtn)
 
-        // ================= 2. MASTER TEMPORARY OFF BUTTON =================
-        masterPauseBtn = Button(this).apply {
-            typeface = Typeface.DEFAULT_BOLD
-            textSize = 12f
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply {
-                setMargins(28, 14, 28, 4)
-            }
-            setOnClickListener {
-                storage.isMasterPaused = !storage.isMasterPaused
-                updateMasterButtonUI()
-                showAnimatedNotification(
-                    if (storage.isMasterPaused) "All App Locks Temporarily OFF"
-                    else "Vault Protection Resumed!",
-                    if (storage.isMasterPaused) "#F59E0B" else "#10B981",
-                    "#0B1120"
-                )
-            }
-        }
-
-        // ================= 3. QUICK FINGERPRINT / BIOMETRIC BUTTON =================
-        bioQuickBtn = Button(this).apply {
-            typeface = Typeface.DEFAULT_BOLD
-            textSize = 12f
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply {
-                setMargins(28, 6, 28, 4)
-            }
-            setOnClickListener {
-                storage.isFingerprintEnabled = !storage.isFingerprintEnabled
-                updateBioQuickButtonUI()
-                showAnimatedNotification(
-                    if (storage.isFingerprintEnabled) "Fingerprint / Face Unlock: ON"
-                    else "Fingerprint / Face Unlock: OFF",
-                    "#38BDF8",
-                    "#0B1120"
-                )
-            }
-        }
-
-        // ================= 4. MANDATORY PERMISSIONS WARNING BANNER =================
-        permissionWarningBox = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(24, 16, 24, 16)
-            visibility = View.GONE
-            background = GradientDrawable().apply {
-                setColor(Color.parseColor("#7F1D1D"))
-                cornerRadius = 22f
-                setStroke(2, Color.parseColor("#EF4444"))
-            }
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply {
-                setMargins(28, 10, 28, 4)
-            }
-        }
-
-        permissionWarningText = TextView(this).apply {
-            textSize = 12f
-            typeface = Typeface.DEFAULT_BOLD
-            setTextColor(Color.parseColor("#FECACA"))
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-                rightMargin = 14
-            }
-        }
-
-        fixPermissionBtn = Button(this).apply {
-            text = "Enable Now"
-            textSize = 11f
-            typeface = Typeface.DEFAULT_BOLD
-            setTextColor(Color.WHITE)
-            background = GradientDrawable().apply {
-                setColor(Color.parseColor("#EF4444"))
-                cornerRadius = 16f
-            }
-        }
-
-        permissionWarningBox.addView(permissionWarningText)
-        permissionWarningBox.addView(fixPermissionBtn)
-
-        // ================= 5. TWO SEPARATE TABS =================
+        // ================= 2. 3-TAB NAVIGATION BAR =================
         val tabBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            setPadding(28, 12, 28, 8)
+            setBackgroundColor(COLOR_PRIMARY_BLUE)
+            elevation = 8f
         }
 
-        tabAllBtn = Button(this).apply {
-            text = "All Apps (${allLaunchableApps.size})"
+        fun buildTab(label: String, targetPage: Page): Pair<TextView, View> {
+            val tabWrapper = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER_HORIZONTAL
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                setOnClickListener { switchToPage(targetPage) }
+            }
+            val tv = TextView(this).apply {
+                text = label
+                textSize = 13f
+                typeface = Typeface.DEFAULT_BOLD
+                gravity = Gravity.CENTER
+                setPadding(8, 22, 8, 20)
+                setTextColor(Color.WHITE)
+            }
+            val indicator = View(this).apply {
+                setBackgroundColor(COLOR_ACCENT_YELLOW)
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    9
+                )
+            }
+            tabWrapper.addView(tv)
+            tabWrapper.addView(indicator)
+            tabBar.addView(tabWrapper)
+            return Pair(tv, indicator)
+        }
+
+        val (tSet, iSet) = buildTab("SETTINGS", Page.SETTINGS)
+        val (tLock, iLock) = buildTab("LOCKED APP", Page.LOCKED_APP)
+        val (tNet, iNet) = buildTab("NET GUARDED", Page.NET_GUARDED)
+
+        tabSettingsText = tSet; tabSettingsIndicator = iSet
+        tabLockedText = tLock; tabLockedIndicator = iLock
+        tabNetText = tNet; tabNetIndicator = iNet
+
+        // ================= 3. PERMISSION WARNING STRIP =================
+        permissionBanner = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(28, 16, 24, 16)
+            setBackgroundColor(Color.parseColor("#B91C1C"))
+            visibility = View.GONE
+        }
+
+        permissionBannerText = TextView(this).apply {
+            textSize = 12f
             typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.WHITE)
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-                rightMargin = 8
-            }
-            setOnClickListener {
-                showingLockedOnly = false
-                updateTabStyles()
-                refreshAppList()
+                rightMargin = 12
             }
         }
 
-        tabLockedBtn = Button(this).apply {
-            text = "Locked Apps"
+        permissionFixBtn = Button(this).apply {
+            text = "FIX"
+            textSize = 11f
             typeface = Typeface.DEFAULT_BOLD
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-                leftMargin = 8
-            }
-            setOnClickListener {
-                showingLockedOnly = true
-                updateTabStyles()
-                refreshAppList()
-            }
-        }
-
-        tabBar.addView(tabAllBtn)
-        tabBar.addView(tabLockedBtn)
-
-        // ================= 6. SEARCH BAR =================
-        val searchBox = EditText(this).apply {
-            hint = "Search app (WIFI • CELL • CRASH • LOCK)..."
-            setSingleLine(true)
-            setPadding(32, 20, 32, 20)
-            setTextColor(Color.parseColor("#F8FAFC"))
-            setHintTextColor(Color.parseColor("#64748B"))
+            setTextColor(Color.parseColor("#B91C1C"))
             background = GradientDrawable().apply {
-                setColor(Color.parseColor("#1E293B"))
+                setColor(Color.WHITE)
+                cornerRadius = 14f
+            }
+        }
+
+        permissionBanner.addView(permissionBannerText)
+        permissionBanner.addView(permissionFixBtn)
+
+        // ================= 4. PAGE CONTENT AREA =================
+        val contentFrame = FrameLayout(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                0,
+                1f
+            )
+        }
+
+        pageAppsContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
+        }
+
+        searchBox = EditText(this).apply {
+            hint = "Search apps..."
+            setSingleLine(true)
+            setPadding(32, 22, 32, 22)
+            setTextColor(COLOR_TEXT_DARK)
+            setHintTextColor(COLOR_TEXT_MUTED)
+            background = GradientDrawable().apply {
+                setColor(Color.WHITE)
                 cornerRadius = 24f
-                setStroke(2, Color.parseColor("#334155"))
+                setStroke(2, Color.parseColor("#CBD5E1"))
             }
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply {
-                setMargins(28, 6, 28, 10)
+                setMargins(28, 20, 28, 12)
             }
             addTextChangedListener(object : TextWatcher {
                 override fun afterTextChanged(s: Editable?) {
@@ -304,10 +294,18 @@ class MainActivity : Activity() {
             })
         }
 
-        // ================= 7. APP LIST =================
+        emptyStateText = TextView(this).apply {
+            textSize = 14f
+            setTextColor(COLOR_TEXT_MUTED)
+            gravity = Gravity.CENTER
+            setPadding(48, 120, 48, 48)
+            visibility = View.GONE
+        }
+
         listView = ListView(this).apply {
-            dividerHeight = 0
-            setPadding(20, 0, 20, 14)
+            divider = android.graphics.drawable.ColorDrawable(Color.parseColor("#E2E8F0"))
+            dividerHeight = 1
+            setPadding(0, 4, 0, 180)
             clipToPadding = false
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -316,110 +314,614 @@ class MainActivity : Activity() {
             )
         }
 
-        // ================= 8. FOOTER =================
-        val footer = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-            setPadding(20, 20, 20, 32)
+        pageAppsContainer.addView(searchBox)
+        pageAppsContainer.addView(emptyStateText)
+        pageAppsContainer.addView(listView)
+
+        pageSettingsView = buildSettingsPage()
+
+        contentFrame.addView(pageAppsContainer)
+        contentFrame.addView(pageSettingsView)
+
+        mainColumn.addView(appBar)
+        mainColumn.addView(tabBar)
+        mainColumn.addView(permissionBanner)
+        mainColumn.addView(contentFrame)
+
+        // ================= 5. FLOATING '+' BUTTON FOR ALL APPS =================
+        fabAddBtn = ImageButton(this).apply {
+            setImageResource(android.R.drawable.ic_input_add)
+            setColorFilter(Color.WHITE)
             background = GradientDrawable().apply {
-                setColor(Color.parseColor("#0F172A"))
+                shape = GradientDrawable.OVAL
+                setColor(COLOR_PRIMARY_BLUE)
+            }
+            elevation = 16f
+            setPadding(36, 36, 36, 36)
+            contentDescription = "All Apps"
+            layoutParams = FrameLayout.LayoutParams(148, 148, Gravity.BOTTOM or Gravity.END).apply {
+                setMargins(0, 0, 48, 56)
+            }
+            setOnClickListener {
+                if (currentPage == Page.ALL_APPS) {
+                    switchToPage(Page.LOCKED_APP)
+                } else {
+                    switchToPage(Page.ALL_APPS)
+                }
             }
         }
 
-        footerText = TextView(this).apply {
-            textSize = 11f
-            setTextColor(Color.parseColor("#94A3B8"))
-            typeface = Typeface.DEFAULT_BOLD
-        }
-        footer.addView(footerText)
-
-        mainColumn.addView(header)
-        mainColumn.addView(masterPauseBtn)
-        mainColumn.addView(bioQuickBtn)
-        mainColumn.addView(permissionWarningBox)
-        mainColumn.addView(tabBar)
-        mainColumn.addView(searchBox)
-        mainColumn.addView(listView)
-        mainColumn.addView(footer)
-
-        // ================= 9. ANIMATED POPUP NOTIFICATION =================
+        // ================= 6. TOP TOAST POPUP BANNER =================
         popupBanner = TextView(this).apply {
             textSize = 13f
             typeface = Typeface.DEFAULT_BOLD
-            setTextColor(Color.parseColor("#06130E"))
+            setTextColor(Color.WHITE)
             gravity = Gravity.CENTER
             setPadding(36, 22, 36, 22)
             visibility = View.GONE
-            elevation = 16f
+            elevation = 20f
             background = GradientDrawable().apply {
-                setColor(Color.parseColor("#10B981"))
-                cornerRadius = 32f
+                setColor(COLOR_DARK_BLUE)
+                cornerRadius = 28f
             }
             layoutParams = FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.WRAP_CONTENT,
                 Gravity.TOP
             ).apply {
-                setMargins(32, safeTopPadding + 14, 32, 0)
+                setMargins(32, statusBarHeight + 24, 32, 0)
             }
         }
 
         rootFrame.addView(mainColumn)
+        rootFrame.addView(fabAddBtn)
         rootFrame.addView(popupBanner)
         setContentView(rootFrame)
 
-        updateMasterButtonUI()
-        updateBioQuickButtonUI()
-        updateTabStyles()
-        refreshAppList()
-        updateFooter()
+        syncTopLockIconUI()
+        switchToPage(Page.LOCKED_APP)
     }
 
     override fun onResume() {
         super.onResume()
         checkMandatoryPermissions()
-        updateBioQuickButtonUI()
+        syncTopLockIconUI()
+        if (::antiUninstallSwitchRef.isInitialized) {
+            antiUninstallSwitchRef.isChecked = isAntiUninstallActive()
+        }
+        if (::bioSwitchRef.isInitialized) {
+            bioSwitchRef.isChecked = storage.isFingerprintEnabled
+        }
     }
 
-    private fun updateMasterButtonUI() {
-        if (storage.isMasterPaused) {
-            masterPauseBtn.text = "⏸ ALL LOCKS TEMPORARILY OFF — TAP TO RESUME"
-            masterPauseBtn.setTextColor(Color.parseColor("#0B1120"))
-            masterPauseBtn.background = GradientDrawable().apply {
-                setColor(Color.parseColor("#F59E0B"))
-                cornerRadius = 22f
+    // ================= ANTI-UNINSTALL RESTRICTION (TOP LOCK ICON) =================
+    private fun isAntiUninstallActive(): Boolean {
+        return storage.isAntiUninstallEnabled && dpm.isAdminActive(adminComponent)
+    }
+
+    private fun syncTopLockIconUI() {
+        val active = isAntiUninstallActive()
+        topLockBtn.setColorFilter(if (active) COLOR_ACCENT_YELLOW else Color.WHITE)
+        topLockBtn.background = GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(if (active) Color.parseColor("#40FDD835") else Color.parseColor("#26FFFFFF"))
+            if (active) setStroke(3, COLOR_ACCENT_YELLOW)
+        }
+    }
+
+    private fun toggleAntiUninstallRestriction() {
+        if (!dpm.isAdminActive(adminComponent)) {
+            storage.isAntiUninstallEnabled = true
+            val intent = Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN).apply {
+                putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, adminComponent)
+                putExtra(
+                    DevicePolicyManager.EXTRA_ADD_EXPLANATION,
+                    "Protects HS AppLock and asks for your password before any app can be uninstalled."
+                )
+            }
+            startActivityForResult(intent, REQ_DEVICE_ADMIN)
+        } else if (!storage.isAntiUninstallEnabled) {
+            storage.isAntiUninstallEnabled = true
+            syncTopLockIconUI()
+            if (::antiUninstallSwitchRef.isInitialized) antiUninstallSwitchRef.isChecked = true
+            showBanner("Uninstall Blocker: ON (Password Required)", "#0277BD")
+        } else {
+            if (::antiUninstallSwitchRef.isInitialized) antiUninstallSwitchRef.isChecked = true
+            val verifyIntent = Intent(this, LockActivity::class.java).apply {
+                putExtra("TARGET_PACKAGE", "DISABLE_ANTI_UNINSTALL")
+            }
+            startActivityForResult(verifyIntent, REQ_DISABLE_UNINSTALL_AUTH)
+        }
+    }
+
+    // ================= PAGE NAVIGATION =================
+    private fun switchToPage(page: Page) {
+        currentPage = page
+        searchQuery = ""
+        searchBox.text.clear()
+
+        tabSettingsIndicator.visibility = if (page == Page.SETTINGS) View.VISIBLE else View.INVISIBLE
+        tabLockedIndicator.visibility = if (page == Page.LOCKED_APP) View.VISIBLE else View.INVISIBLE
+        tabNetIndicator.visibility = if (page == Page.NET_GUARDED) View.VISIBLE else View.INVISIBLE
+
+        tabSettingsText.alpha = if (page == Page.SETTINGS) 1f else 0.72f
+        tabLockedText.alpha = if (page == Page.LOCKED_APP) 1f else 0.72f
+        tabNetText.alpha = if (page == Page.NET_GUARDED) 1f else 0.72f
+
+        if (page == Page.SETTINGS) {
+            pageSettingsView.visibility = View.VISIBLE
+            pageAppsContainer.visibility = View.GONE
+            fabAddBtn.visibility = View.GONE
+        } else {
+            pageSettingsView.visibility = View.GONE
+            pageAppsContainer.visibility = View.VISIBLE
+            fabAddBtn.visibility = View.VISIBLE
+            fabAddBtn.rotation = if (page == Page.ALL_APPS) 45f else 0f
+            searchBox.hint = when (page) {
+                Page.ALL_APPS -> "Search all ${allLaunchableApps.size} installed apps to lock..."
+                Page.NET_GUARDED -> "Search network-guarded apps..."
+                else -> "Search locked apps..."
+            }
+            refreshAppList()
+        }
+    }
+
+    // ================= APP LIST RENDERING =================
+    private fun refreshAppList() {
+        val lockedSet = storage.getLockedApps()
+        val wifiSet = storage.getWifiBlockedApps()
+        val cellSet = storage.getMobileBlockedApps()
+
+        displayedApps = allLaunchableApps.filter { app ->
+            val matchesPage = when (currentPage) {
+                Page.LOCKED_APP -> lockedSet.contains(app.packageName)
+                Page.NET_GUARDED -> wifiSet.contains(app.packageName) || cellSet.contains(app.packageName)
+                Page.ALL_APPS -> true
+                Page.SETTINGS -> false
+            }
+            val matchesSearch = searchQuery.isEmpty() || app.name.lowercase().contains(searchQuery)
+            matchesPage && matchesSearch
+        }
+
+        if (displayedApps.isEmpty()) {
+            emptyStateText.visibility = View.VISIBLE
+            emptyStateText.text = when (currentPage) {
+                Page.LOCKED_APP -> "No apps locked yet.\nTap the blue '+' button below to add apps."
+                Page.NET_GUARDED -> "No apps have Wi-Fi or Mobile Data blocked.\nTap '+' or toggle WIFI / NET on any app."
+                else -> "No matching apps found."
             }
         } else {
-            masterPauseBtn.text = "🛡 VAULT ACTIVE — TAP TO TEMPORARILY TURN OFF ALL LOCKS"
-            masterPauseBtn.setTextColor(Color.parseColor("#10B981"))
-            masterPauseBtn.background = GradientDrawable().apply {
-                setColor(Color.parseColor("#0F2922"))
-                cornerRadius = 22f
-                setStroke(2, Color.parseColor("#10B981"))
+            emptyStateText.visibility = View.GONE
+        }
+
+        listView.adapter = object : BaseAdapter() {
+            override fun getCount(): Int = displayedApps.size
+            override fun getItem(position: Int): Any = displayedApps[position]
+            override fun getItemId(position: Int): Long = position.toLong()
+
+            override fun getView(position: Int, convertView: View?, parent: ViewGroup?): View {
+                val app = displayedApps[position]
+                val isLocked = lockedSet.contains(app.packageName)
+                val isWifiBlocked = wifiSet.contains(app.packageName)
+                val isCellBlocked = cellSet.contains(app.packageName)
+                val isFakeCrash = storage.getFakeCrashApps().contains(app.packageName)
+
+                val row = LinearLayout(this@MainActivity).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    setBackgroundColor(Color.WHITE)
+                    setPadding(28, 22, 24, 22)
+                    layoutParams = AbsListView.LayoutParams(
+                        AbsListView.LayoutParams.MATCH_PARENT,
+                        AbsListView.LayoutParams.WRAP_CONTENT
+                    )
+                }
+
+                val iconView = ImageView(this@MainActivity).apply {
+                    setImageDrawable(app.icon)
+                    layoutParams = LinearLayout.LayoutParams(82, 82).apply {
+                        rightMargin = 22
+                    }
+                }
+
+                val nameText = TextView(this@MainActivity).apply {
+                    text = app.name
+                    textSize = 14f
+                    typeface = Typeface.DEFAULT_BOLD
+                    setTextColor(COLOR_TEXT_DARK)
+                    maxLines = 1
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                }
+
+                // 1. CRASH (Fake Crash Circle Badge)
+                val crashBadge = makeActionPill(
+                    label = "CRASH",
+                    active = isFakeCrash,
+                    activeColor = Color.parseColor("#E53935"),
+                    inactiveStroke = Color.parseColor("#EF9A9A"),
+                    inactiveText = Color.parseColor("#E53935")
+                ) {
+                    val updated = storage.getFakeCrashApps().toMutableSet()
+                    if (updated.contains(app.packageName)) {
+                        updated.remove(app.packageName)
+                        storage.setFakeCrashApps(updated)
+                        showBanner("${app.name}: Fake Crash OFF", "#64748B")
+                    } else {
+                        updated.add(app.packageName)
+                        storage.setFakeCrashApps(updated)
+                        val l = storage.getLockedApps().toMutableSet().apply { add(app.packageName) }
+                        storage.setLockedApps(l)
+                        showBanner("${app.name}: Fake Crash ON", "#E53935")
+                    }
+                    refreshAppList()
+                }
+
+                // 2. WIFI (Wi-Fi Block Toggle)
+                val wifiBadge = makeActionPill(
+                    label = if (isWifiBlocked) "WIFI✕" else "WIFI",
+                    active = isWifiBlocked,
+                    activeColor = Color.parseColor("#F57C00"),
+                    inactiveStroke = Color.parseColor("#90CAF9"),
+                    inactiveText = Color.parseColor("#0277BD")
+                ) {
+                    val updated = storage.getWifiBlockedApps().toMutableSet()
+                    if (updated.contains(app.packageName)) {
+                        updated.remove(app.packageName)
+                        storage.setWifiBlockedApps(updated)
+                        syncNetworkFirewall()
+                        showBanner("${app.name}: Wi-Fi Allowed", "#0277BD")
+                    } else {
+                        updated.add(app.packageName)
+                        storage.setWifiBlockedApps(updated)
+                        syncNetworkFirewall()
+                        showBanner("${app.name}: Wi-Fi Blocked", "#F57C00")
+                    }
+                    refreshAppList()
+                }
+
+                // 3. NET (Mobile Data Block Toggle)
+                val netBadge = makeActionPill(
+                    label = if (isCellBlocked) "NET✕" else "NET",
+                    active = isCellBlocked,
+                    activeColor = Color.parseColor("#6D28D9"),
+                    inactiveStroke = Color.parseColor("#C4B5FD"),
+                    inactiveText = Color.parseColor("#6D28D9")
+                ) {
+                    val updated = storage.getMobileBlockedApps().toMutableSet()
+                    if (updated.contains(app.packageName)) {
+                        updated.remove(app.packageName)
+                        storage.setMobileBlockedApps(updated)
+                        syncNetworkFirewall()
+                        showBanner("${app.name}: Mobile Net Allowed", "#0277BD")
+                    } else {
+                        updated.add(app.packageName)
+                        storage.setMobileBlockedApps(updated)
+                        syncNetworkFirewall()
+                        showBanner("${app.name}: Mobile Net Blocked", "#6D28D9")
+                    }
+                    refreshAppList()
+                }
+
+                // 4. LOCK Toggle Icon
+                val lockIcon = ImageView(this@MainActivity).apply {
+                    setImageResource(
+                        if (isLocked) android.R.drawable.ic_lock_idle_lock
+                        else android.R.drawable.ic_partial_secure
+                    )
+                    setColorFilter(if (isLocked) COLOR_PRIMARY_BLUE else Color.parseColor("#94A3B8"))
+                    setPadding(10, 10, 4, 10)
+                    layoutParams = LinearLayout.LayoutParams(62, 62)
+                }
+
+                row.addView(iconView)
+                row.addView(nameText)
+                row.addView(crashBadge)
+                row.addView(wifiBadge)
+                row.addView(netBadge)
+                row.addView(lockIcon)
+
+                row.setOnClickListener {
+                    if (!isAccessibilityEnabled()) {
+                        checkMandatoryPermissions()
+                        showBanner("Enable Accessibility Service first!", "#B91C1C")
+                        return@setOnClickListener
+                    }
+                    val updated = storage.getLockedApps().toMutableSet()
+                    if (updated.contains(app.packageName)) {
+                        updated.remove(app.packageName)
+                        storage.setLockedApps(updated)
+                        showBanner("${app.name}: Unlocked", "#64748B")
+                    } else {
+                        updated.add(app.packageName)
+                        storage.setLockedApps(updated)
+                        showBanner("${app.name}: Locked", "#0277BD")
+                    }
+                    refreshAppList()
+                }
+
+                return row
             }
         }
     }
 
-    private fun updateBioQuickButtonUI() {
-        if (storage.isFingerprintEnabled) {
-            bioQuickBtn.text = "👆 FINGERPRINT / FACE UNLOCK: ON — TAP TO TURN OFF"
-            bioQuickBtn.setTextColor(Color.parseColor("#0B1120"))
-            bioQuickBtn.background = GradientDrawable().apply {
-                setColor(Color.parseColor("#38BDF8"))
-                cornerRadius = 22f
+    private fun makeActionPill(
+        label: String,
+        active: Boolean,
+        activeColor: Int,
+        inactiveStroke: Int,
+        inactiveText: Int,
+        onClick: () -> Unit
+    ): TextView {
+        return TextView(this).apply {
+            text = label
+            textSize = 9.5f
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            setPadding(14, 12, 14, 12)
+            setTextColor(if (active) Color.WHITE else inactiveText)
+            background = GradientDrawable().apply {
+                setColor(if (active) activeColor else Color.WHITE)
+                cornerRadius = 30f
+                setStroke(2, if (active) activeColor else inactiveStroke)
             }
-        } else {
-            bioQuickBtn.text = "👆 FINGERPRINT / FACE UNLOCK: OFF — TAP TO TURN ON"
-            bioQuickBtn.setTextColor(Color.parseColor("#94A3B8"))
-            bioQuickBtn.background = GradientDrawable().apply {
-                setColor(Color.parseColor("#1E293B"))
-                cornerRadius = 22f
-                setStroke(2, Color.parseColor("#334155"))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                rightMargin = 10
             }
+            setOnClickListener { onClick() }
         }
     }
 
-    // ================= MANDATORY PERMISSIONS CHECK =================
+    // ================= DEDICATED SETTINGS PAGE =================
+    private fun buildSettingsPage(): ScrollView {
+        val scroll = ScrollView(this).apply {
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
+        }
+
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(28, 24, 28, 120)
+        }
+
+        fun makeCard(): LinearLayout {
+            return LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(32, 28, 32, 28)
+                background = GradientDrawable().apply {
+                    setColor(Color.WHITE)
+                    cornerRadius = 24f
+                    setStroke(2, Color.parseColor("#E2E8F0"))
+                }
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { bottomMargin = 20 }
+            }
+        }
+
+        fun makeSectionTitle(title: String): TextView {
+            return TextView(this).apply {
+                text = title
+                textSize = 14f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(COLOR_PRIMARY_BLUE)
+                setPadding(0, 0, 0, 14)
+            }
+        }
+
+        val controlCard = makeCard()
+        controlCard.addView(makeSectionTitle("PROTECTION & BIOMETRICS"))
+
+        masterPauseSwitchRef = Switch(this).apply {
+            text = "Temporarily Pause All App Locks"
+            textSize = 14f
+            setTextColor(COLOR_TEXT_DARK)
+            isChecked = storage.isMasterPaused
+            setOnCheckedChangeListener { _, checked ->
+                storage.isMasterPaused = checked
+                showBanner(if (checked) "All Locks Temporarily OFF" else "Vault Protection Active", if (checked) "#F57C00" else "#0277BD")
+            }
+        }
+
+        antiUninstallSwitchRef = Switch(this).apply {
+            text = "\nUninstall Blocker (Ask Password to Uninstall Any App)"
+            textSize = 14f
+            setTextColor(COLOR_TEXT_DARK)
+            isChecked = isAntiUninstallActive()
+            setOnClickListener { toggleAntiUninstallRestriction() }
+        }
+
+        bioSwitchRef = Switch(this).apply {
+            text = "\nFingerprint / Face Unlock / System Lock"
+            textSize = 14f
+            setTextColor(COLOR_TEXT_DARK)
+            isChecked = storage.isFingerprintEnabled
+            setOnCheckedChangeListener { _, checked ->
+                storage.isFingerprintEnabled = checked
+                showBanner(if (checked) "Fingerprint / Face Unlock: ON" else "Fingerprint / Face Unlock: OFF")
+            }
+        }
+
+        val lockExitSwitch = Switch(this).apply {
+            text = "\nLock Immediately on App Exit"
+            textSize = 14f
+            setTextColor(COLOR_TEXT_DARK)
+            isChecked = storage.isLockOnExitEnabled
+            setOnCheckedChangeListener { _, checked ->
+                storage.isLockOnExitEnabled = checked
+                showBanner(if (checked) "Lock on Exit: ON" else "Lock on Exit: OFF")
+            }
+        }
+
+        controlCard.addView(masterPauseSwitchRef)
+        controlCard.addView(antiUninstallSwitchRef)
+        controlCard.addView(bioSwitchRef)
+        controlCard.addView(lockExitSwitch)
+
+        val authCard = makeCard()
+        authCard.addView(makeSectionTitle("AUTHENTICATION CREDENTIALS"))
+
+        val pinInput = EditText(this).apply {
+            hint = "Set 4+ Digit PIN (${if (storage.hasCredential(LockStorage.AuthType.PIN)) "ACTIVE" else "Not Set"})"
+            setTextColor(COLOR_TEXT_DARK)
+            setHintTextColor(COLOR_TEXT_MUTED)
+            inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD
+        }
+        val savePinBtn = Button(this).apply {
+            text = "Save PIN"
+            setTextColor(Color.WHITE)
+            background = GradientDrawable().apply { setColor(COLOR_PRIMARY_BLUE); cornerRadius = 18f }
+            setOnClickListener {
+                val v = pinInput.text.toString()
+                if (v.length >= 4) {
+                    storage.setCredentialForType(LockStorage.AuthType.PIN, v)
+                    pinInput.text.clear()
+                    pinInput.hint = "Set 4+ Digit PIN (ACTIVE)"
+                    showBanner("PIN Saved!")
+                } else showBanner("Enter at least 4 digits", "#B91C1C")
+            }
+        }
+
+        val passInput = EditText(this).apply {
+            hint = "Set Password (${if (storage.hasCredential(LockStorage.AuthType.PASSWORD)) "ACTIVE" else "Not Set"})"
+            setTextColor(COLOR_TEXT_DARK)
+            setHintTextColor(COLOR_TEXT_MUTED)
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = 20 }
+        }
+        val savePassBtn = Button(this).apply {
+            text = "Save Password"
+            setTextColor(Color.WHITE)
+            background = GradientDrawable().apply { setColor(COLOR_PRIMARY_BLUE); cornerRadius = 18f }
+            setOnClickListener {
+                val v = passInput.text.toString()
+                if (v.length >= 4) {
+                    storage.setCredentialForType(LockStorage.AuthType.PASSWORD, v)
+                    passInput.text.clear()
+                    passInput.hint = "Set Password (ACTIVE)"
+                    showBanner("Password Saved!")
+                } else showBanner("Enter at least 4 characters", "#B91C1C")
+            }
+        }
+
+        var firstPattern: String? = null
+        val patternPrompt = TextView(this).apply {
+            text = "\nDraw 3x3 Pattern (${if (storage.hasCredential(LockStorage.AuthType.PATTERN)) "ACTIVE" else "Not Set"}):"
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(COLOR_TEXT_DARK)
+            gravity = Gravity.CENTER
+        }
+
+        val patternView = PatternLockView(this).apply {
+            compactMode = true
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.CENTER_HORIZONTAL
+            ).apply { topMargin = 12; bottomMargin = 12 }
+            onPatternComplete = { drawn ->
+                if (drawn.length < 4) {
+                    showBanner("Connect at least 4 dots", "#B91C1C")
+                } else if (firstPattern == null) {
+                    firstPattern = drawn
+                    patternPrompt.text = "\nDraw the same pattern again to confirm:"
+                } else if (firstPattern == drawn) {
+                    storage.setCredentialForType(LockStorage.AuthType.PATTERN, drawn)
+                    firstPattern = null
+                    patternPrompt.text = "\nPattern ACTIVE! Draw again to update:"
+                    showBanner("Pattern Saved!")
+                } else {
+                    firstPattern = null
+                    patternPrompt.text = "\nPatterns didn't match. Draw again:"
+                    showBanner("Patterns did not match", "#B91C1C")
+                }
+            }
+        }
+
+        val hidePatternSwitch = Switch(this).apply {
+            text = "Hide Pattern Line While Drawing"
+            textSize = 14f
+            setTextColor(COLOR_TEXT_DARK)
+            isChecked = storage.isPatternHidden
+            setOnCheckedChangeListener { _, checked ->
+                storage.isPatternHidden = checked
+                showBanner(if (checked) "Pattern Path Hidden" else "Pattern Path Visible")
+            }
+        }
+
+        authCard.addView(pinInput)
+        authCard.addView(savePinBtn)
+        authCard.addView(passInput)
+        authCard.addView(savePassBtn)
+        authCard.addView(patternPrompt)
+        authCard.addView(patternView)
+        authCard.addView(hidePatternSwitch)
+
+        val sysCard = makeCard()
+        sysCard.addView(makeSectionTitle("TIMEOUT & SYSTEM PERMISSIONS"))
+
+        val idleOptions = listOf(
+            "Idle Timeout: Disabled" to 0,
+            "Idle Timeout: 15 seconds" to 15,
+            "Idle Timeout: 30 seconds" to 30,
+            "Idle Timeout: 1 minute" to 60,
+            "Idle Timeout: 5 minutes" to 300
+        )
+
+        val idleSpinner = Spinner(this).apply {
+            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, idleOptions.map { it.first })
+            val idx = idleOptions.indexOfFirst { it.second == storage.idleTimeoutSeconds }
+            if (idx >= 0) setSelection(idx)
+            onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+                var init = true
+                override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
+                    if (init) { init = false; return }
+                    storage.idleTimeoutSeconds = idleOptions[pos].second
+                    showBanner(idleOptions[pos].first)
+                }
+                override fun onNothingSelected(p: AdapterView<*>?) {}
+            }
+        }
+
+        val accessBtn = Button(this).apply {
+            text = "Open Accessibility Settings"
+            setTextColor(Color.WHITE)
+            background = GradientDrawable().apply { setColor(COLOR_PRIMARY_BLUE); cornerRadius = 18f }
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = 16 }
+            setOnClickListener { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
+        }
+
+        val miInfoBtn = Button(this).apply {
+            text = "App Info (MIUI Restricted Settings / Autostart)"
+            setTextColor(COLOR_PRIMARY_BLUE)
+            background = GradientDrawable().apply {
+                setColor(Color.WHITE)
+                cornerRadius = 18f
+                setStroke(2, COLOR_PRIMARY_BLUE)
+            }
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = 12 }
+            setOnClickListener {
+                startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
+            }
+        }
+
+        sysCard.addView(idleSpinner)
+        sysCard.addView(accessBtn)
+        sysCard.addView(miInfoBtn)
+
+        container.addView(controlCard)
+        container.addView(authCard)
+        container.addView(sysCard)
+        scroll.addView(container)
+        return scroll
+    }
+
+    // ================= PERMISSIONS & VPN HELPERS =================
     private fun isAccessibilityEnabled(): Boolean {
         val am = getSystemService(Context.ACCESSIBILITY_SERVICE) as AccessibilityManager
         val enabledServices = am.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK)
@@ -437,30 +939,28 @@ class MainActivity : Activity() {
 
     private fun checkMandatoryPermissions() {
         if (!isAccessibilityEnabled()) {
-            permissionWarningBox.visibility = View.VISIBLE
-            permissionWarningText.text = "⚠ Enable Accessibility Service (On MI phones: App Info → Allow restricted settings & Autostart first)."
-            fixPermissionBtn.setOnClickListener {
+            permissionBanner.visibility = View.VISIBLE
+            permissionBannerText.text = "Accessibility Service is OFF. On MI phones: App Info → Allow restricted settings first."
+            permissionFixBtn.setOnClickListener {
                 startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
             }
         } else if (!isIgnoringBatteryOptimizations()) {
-            permissionWarningBox.visibility = View.VISIBLE
-            permissionWarningText.text = "⚠ Set Battery to 'No restrictions' so MI/Android never stops HS AppLock."
-            fixPermissionBtn.setOnClickListener {
+            permissionBanner.visibility = View.VISIBLE
+            permissionBannerText.text = "Set Battery to 'No restrictions' so HS AppLock stays active."
+            permissionFixBtn.setOnClickListener {
                 startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName")))
             }
         } else {
-            permissionWarningBox.visibility = View.GONE
+            permissionBanner.visibility = View.GONE
         }
     }
 
-    // ================= FIREWALL VPN SYNC =================
     private fun syncNetworkFirewall() {
         val hasAnyBlocks = storage.getWifiBlockedApps().isNotEmpty() || storage.getMobileBlockedApps().isNotEmpty()
         if (!hasAnyBlocks) {
-            val stopIntent = Intent(this, AppFirewallVpnService::class.java).apply {
+            startService(Intent(this, AppFirewallVpnService::class.java).apply {
                 action = AppFirewallVpnService.ACTION_STOP
-            }
-            startService(stopIntent)
+            })
             return
         }
 
@@ -468,496 +968,60 @@ class MainActivity : Activity() {
         if (vpnPrepare != null) {
             startActivityForResult(vpnPrepare, REQ_VPN_PERMISSION)
         } else {
-            val startIntent = Intent(this, AppFirewallVpnService::class.java).apply {
+            startForegroundService(Intent(this, AppFirewallVpnService::class.java).apply {
                 action = AppFirewallVpnService.ACTION_UPDATE
-            }
-            startForegroundService(startIntent)
+            })
         }
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == REQ_VPN_PERMISSION && resultCode == RESULT_OK) {
-            val startIntent = Intent(this, AppFirewallVpnService::class.java).apply {
+            startForegroundService(Intent(this, AppFirewallVpnService::class.java).apply {
                 action = AppFirewallVpnService.ACTION_UPDATE
+            })
+            showBanner("Net Guard Firewall Active")
+        } else if (requestCode == REQ_DEVICE_ADMIN) {
+            syncTopLockIconUI()
+            if (::antiUninstallSwitchRef.isInitialized) {
+                antiUninstallSwitchRef.isChecked = isAntiUninstallActive()
             }
-            startForegroundService(startIntent)
-            showAnimatedNotification("Wi-Fi / Mobile Firewall Active")
+            if (isAntiUninstallActive()) {
+                showBanner("Uninstall Blocker Enabled!")
+            }
+        } else if (requestCode == REQ_DISABLE_UNINSTALL_AUTH && resultCode == RESULT_OK) {
+            storage.isAntiUninstallEnabled = false
+            dpm.removeActiveAdmin(adminComponent)
+            syncTopLockIconUI()
+            if (::antiUninstallSwitchRef.isInitialized) {
+                antiUninstallSwitchRef.isChecked = false
+            }
+            showBanner("Uninstall Blocker Disabled", "#64748B")
         }
     }
 
-    private fun showAnimatedNotification(message: String, bgHex: String = "#10B981", textHex: String = "#06130E") {
+    private fun showBanner(message: String, bgHex: String = "#01579B") {
         bannerHandler.removeCallbacksAndMessages(null)
         (popupBanner.background as? GradientDrawable)?.setColor(Color.parseColor(bgHex))
-        popupBanner.setTextColor(Color.parseColor(textHex))
-        popupBanner.text = "✓  $message"
+        popupBanner.text = message
         popupBanner.visibility = View.VISIBLE
-        popupBanner.translationY = -160f
+        popupBanner.translationY = -140f
         popupBanner.alpha = 0f
 
         popupBanner.animate()
             .translationY(0f)
             .alpha(1f)
-            .setDuration(300)
-            .setInterpolator(OvershootInterpolator(1.2f))
+            .setDuration(260)
+            .setInterpolator(OvershootInterpolator(1.1f))
             .start()
 
         bannerHandler.postDelayed({
             popupBanner.animate()
-                .translationY(-160f)
+                .translationY(-140f)
                 .alpha(0f)
-                .setDuration(240)
+                .setDuration(220)
                 .withEndAction { popupBanner.visibility = View.GONE }
                 .start()
-        }, 2000)
-    }
-
-    private fun updateTabStyles() {
-        val activeBg = GradientDrawable().apply {
-            setColor(Color.parseColor("#10B981"))
-            cornerRadius = 22f
-        }
-        val inactiveBg = GradientDrawable().apply {
-            setColor(Color.parseColor("#1E293B"))
-            cornerRadius = 22f
-            setStroke(2, Color.parseColor("#334155"))
-        }
-
-        if (showingLockedOnly) {
-            tabLockedBtn.background = activeBg
-            tabLockedBtn.setTextColor(Color.parseColor("#06130E"))
-            tabAllBtn.background = inactiveBg
-            tabAllBtn.setTextColor(Color.parseColor("#94A3B8"))
-        } else {
-            tabAllBtn.background = activeBg
-            tabAllBtn.setTextColor(Color.parseColor("#06130E"))
-            tabLockedBtn.background = inactiveBg
-            tabLockedBtn.setTextColor(Color.parseColor("#94A3B8"))
-        }
-    }
-
-    private fun updateFooter() {
-        val lockedCount = storage.getLockedApps().size
-        val wifiBlocked = storage.getWifiBlockedApps().size
-        val cellBlocked = storage.getMobileBlockedApps().size
-        val activeModes = storage.getConfiguredAuthTypes().joinToString("+") { it.name }.ifEmpty { "NONE" }
-        footerText.text = "🔒 $lockedCount  •  📶 Wi-Fi Off: $wifiBlocked  •  📡 Cell Off: $cellBlocked  •  🔑 $activeModes"
-    }
-
-    private fun refreshAppList() {
-        val lockedSet = storage.getLockedApps()
-        displayedApps = allLaunchableApps.filter { app ->
-            val matchesTab = if (showingLockedOnly) lockedSet.contains(app.packageName) else true
-            val matchesSearch = if (searchQuery.isEmpty()) true else app.name.lowercase().contains(searchQuery)
-            matchesTab && matchesSearch
-        }
-
-        listView.adapter = object : BaseAdapter() {
-            override fun getCount(): Int = displayedApps.size
-            override fun getItem(position: Int): Any = displayedApps[position]
-            override fun getItemId(position: Int): Long = position.toLong()
-
-            override fun getView(position: Int, convertView: View?, parent: ViewGroup?): View {
-                val app = displayedApps[position]
-                val isLocked = storage.getLockedApps().contains(app.packageName)
-                val isWifiBlocked = storage.getWifiBlockedApps().contains(app.packageName)
-                val isMobileBlocked = storage.getMobileBlockedApps().contains(app.packageName)
-                val isFakeCrash = storage.getFakeCrashApps().contains(app.packageName)
-
-                val row = LinearLayout(this@MainActivity).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    gravity = Gravity.CENTER_VERTICAL
-                    setPadding(16, 16, 16, 16)
-                    background = GradientDrawable().apply {
-                        setColor(if (isLocked) Color.parseColor("#132A2E") else Color.parseColor("#1E293B"))
-                        cornerRadius = 22f
-                        setStroke(
-                            2,
-                            if (isLocked) Color.parseColor("#10B981") else Color.parseColor("#293548")
-                        )
-                    }
-                    layoutParams = AbsListView.LayoutParams(
-                        AbsListView.LayoutParams.MATCH_PARENT,
-                        AbsListView.LayoutParams.WRAP_CONTENT
-                    )
-                }
-
-                val wrapper = FrameLayout(this@MainActivity).apply {
-                    setPadding(0, 5, 0, 5)
-                }
-
-                val iconView = ImageView(this@MainActivity).apply {
-                    setImageDrawable(app.icon)
-                    layoutParams = LinearLayout.LayoutParams(72, 72).apply {
-                        rightMargin = 14
-                    }
-                }
-
-                val nameText = TextView(this@MainActivity).apply {
-                    text = app.name
-                    textSize = 13f
-                    typeface = Typeface.DEFAULT_BOLD
-                    setTextColor(Color.parseColor("#F8FAFC"))
-                    maxLines = 1
-                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-                }
-
-                // 1. Per-App Fake Crash Badge
-                val crashBtn = TextView(this@MainActivity).apply {
-                    text = "CRASH"
-                    textSize = 9f
-                    typeface = Typeface.DEFAULT_BOLD
-                    setPadding(10, 10, 10, 10)
-                    setTextColor(if (isFakeCrash) Color.WHITE else Color.parseColor("#64748B"))
-                    background = GradientDrawable().apply {
-                        setColor(if (isFakeCrash) Color.parseColor("#DC2626") else Color.parseColor("#0F172A"))
-                        cornerRadius = 12f
-                    }
-                    layoutParams = LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.WRAP_CONTENT,
-                        LinearLayout.LayoutParams.WRAP_CONTENT
-                    ).apply { rightMargin = 8 }
-                    setOnClickListener {
-                        val updated = storage.getFakeCrashApps().toMutableSet()
-                        if (updated.contains(app.packageName)) {
-                            updated.remove(app.packageName)
-                            storage.setFakeCrashApps(updated)
-                            showAnimatedNotification("${app.name}: Fake Crash OFF", "#64748B", "#F8FAFC")
-                        } else {
-                            updated.add(app.packageName)
-                            storage.setFakeCrashApps(updated)
-                            val locked = storage.getLockedApps().toMutableSet().apply { add(app.packageName) }
-                            storage.setLockedApps(locked)
-                            showAnimatedNotification("${app.name}: Fake Crash ON", "#EF4444", "#FFFFFF")
-                        }
-                        updateFooter()
-                        refreshAppList()
-                    }
-                }
-
-                // 2. Per-App WI-FI On/Off Badge
-                val wifiBtn = TextView(this@MainActivity).apply {
-                    text = if (isWifiBlocked) "WIFI✕" else "WIFI"
-                    textSize = 9f
-                    typeface = Typeface.DEFAULT_BOLD
-                    setPadding(10, 10, 10, 10)
-                    setTextColor(if (isWifiBlocked) Color.WHITE else Color.parseColor("#38BDF8"))
-                    background = GradientDrawable().apply {
-                        setColor(if (isWifiBlocked) Color.parseColor("#D97706") else Color.parseColor("#0F172A"))
-                        cornerRadius = 12f
-                    }
-                    layoutParams = LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.WRAP_CONTENT,
-                        LinearLayout.LayoutParams.WRAP_CONTENT
-                    ).apply { rightMargin = 8 }
-                    setOnClickListener {
-                        val updated = storage.getWifiBlockedApps().toMutableSet()
-                        if (updated.contains(app.packageName)) {
-                            updated.remove(app.packageName)
-                            storage.setWifiBlockedApps(updated)
-                            syncNetworkFirewall()
-                            showAnimatedNotification("${app.name}: Wi-Fi Enabled", "#38BDF8", "#0B1120")
-                        } else {
-                            updated.add(app.packageName)
-                            storage.setWifiBlockedApps(updated)
-                            syncNetworkFirewall()
-                            showAnimatedNotification("${app.name}: Wi-Fi Blocked", "#F59E0B", "#0B1120")
-                        }
-                        updateFooter()
-                        refreshAppList()
-                    }
-                }
-
-                // 3. Per-App MOBILE DATA On/Off Badge
-                val cellBtn = TextView(this@MainActivity).apply {
-                    text = if (isMobileBlocked) "CELL✕" else "CELL"
-                    textSize = 9f
-                    typeface = Typeface.DEFAULT_BOLD
-                    setPadding(10, 10, 10, 10)
-                    setTextColor(if (isMobileBlocked) Color.WHITE else Color.parseColor("#34D399"))
-                    background = GradientDrawable().apply {
-                        setColor(if (isMobileBlocked) Color.parseColor("#B45309") else Color.parseColor("#0F172A"))
-                        cornerRadius = 12f
-                    }
-                    layoutParams = LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.WRAP_CONTENT,
-                        LinearLayout.LayoutParams.WRAP_CONTENT
-                    ).apply { rightMargin = 10 }
-                    setOnClickListener {
-                        val updated = storage.getMobileBlockedApps().toMutableSet()
-                        if (updated.contains(app.packageName)) {
-                            updated.remove(app.packageName)
-                            storage.setMobileBlockedApps(updated)
-                            syncNetworkFirewall()
-                            showAnimatedNotification("${app.name}: Mobile Data Enabled", "#34D399", "#0B1120")
-                        } else {
-                            updated.add(app.packageName)
-                            storage.setMobileBlockedApps(updated)
-                            syncNetworkFirewall()
-                            showAnimatedNotification("${app.name}: Mobile Data Blocked", "#F59E0B", "#0B1120")
-                        }
-                        updateFooter()
-                        refreshAppList()
-                    }
-                }
-
-                // 4. Per-App Lock Icon
-                val statusLockIcon = ImageView(this@MainActivity).apply {
-                    setImageResource(
-                        if (isLocked) android.R.drawable.ic_lock_idle_lock
-                        else android.R.drawable.ic_partial_secure
-                    )
-                    setColorFilter(
-                        if (isLocked) Color.parseColor("#10B981") else Color.parseColor("#64748B")
-                    )
-                    layoutParams = LinearLayout.LayoutParams(46, 46)
-                }
-
-                row.addView(iconView)
-                row.addView(nameText)
-                row.addView(crashBtn)
-                row.addView(wifiBtn)
-                row.addView(cellBtn)
-                row.addView(statusLockIcon)
-
-                row.setOnClickListener {
-                    if (!isAccessibilityEnabled()) {
-                        checkMandatoryPermissions()
-                        showAnimatedNotification("Enable Accessibility Permission First!", "#EF4444", "#FFFFFF")
-                        return@setOnClickListener
-                    }
-                    val updated = storage.getLockedApps().toMutableSet()
-                    if (updated.contains(app.packageName)) {
-                        updated.remove(app.packageName)
-                        storage.setLockedApps(updated)
-                        showAnimatedNotification("${app.name} Unlocked", "#F59E0B", "#0B1120")
-                    } else {
-                        updated.add(app.packageName)
-                        storage.setLockedApps(updated)
-                        showAnimatedNotification("${app.name} Locked", "#10B981", "#06130E")
-                    }
-                    updateFooter()
-                    refreshAppList()
-                }
-
-                wrapper.addView(row)
-                return wrapper
-            }
-        }
-    }
-
-    // ================= SETTINGS DIALOG =================
-    private fun openSettingsDialog() {
-        val scroll = ScrollView(this)
-        val container = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(40, 28, 40, 28)
-        }
-
-        val accessBtn = Button(this).apply {
-            text = if (isAccessibilityEnabled()) "✓ Accessibility Service Active"
-            else "⚠ Enable Mandatory Accessibility Service"
-            setTextColor(Color.WHITE)
-            typeface = Typeface.DEFAULT_BOLD
-            background = GradientDrawable().apply {
-                setColor(if (isAccessibilityEnabled()) Color.parseColor("#10B981") else Color.parseColor("#EF4444"))
-                cornerRadius = 20f
-            }
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            )
-            setOnClickListener {
-                startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-            }
-        }
-
-        val miAppInfoBtn = Button(this).apply {
-            text = "Open App Info (MIUI Restricted Settings / Autostart)"
-            textSize = 11f
-            setTextColor(Color.parseColor("#38BDF8"))
-            background = GradientDrawable().apply {
-                setColor(Color.parseColor("#0F172A"))
-                cornerRadius = 18f
-                setStroke(2, Color.parseColor("#38BDF8"))
-            }
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = 12 }
-            setOnClickListener {
-                startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
-            }
-        }
-
-        // Section 1: PIN Lock
-        val pinHeader = TextView(this).apply {
-            text = "\n1. PIN Lock (${if (storage.hasCredential(LockStorage.AuthType.PIN)) "ACTIVE" else "Not Set"}):"
-            typeface = Typeface.DEFAULT_BOLD
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-        }
-        val pinInput = EditText(this).apply {
-            hint = "Enter 4+ digit PIN"
-            inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD
-        }
-        val savePinBtn = Button(this).apply {
-            text = "Save PIN"
-            setTextColor(Color.parseColor("#06130E"))
-            background = GradientDrawable().apply { setColor(Color.parseColor("#10B981")); cornerRadius = 18f }
-            setOnClickListener {
-                val v = pinInput.text.toString()
-                if (v.length >= 4) {
-                    storage.setCredentialForType(LockStorage.AuthType.PIN, v)
-                    pinInput.text.clear()
-                    pinHeader.text = "\n1. PIN Lock (ACTIVE):"
-                    updateFooter()
-                    showAnimatedNotification("PIN Saved!")
-                } else Toast.makeText(this@MainActivity, "Min 4 digits", Toast.LENGTH_SHORT).show()
-            }
-        }
-
-        // Section 2: Password Lock
-        val passHeader = TextView(this).apply {
-            text = "\n2. Password Lock (${if (storage.hasCredential(LockStorage.AuthType.PASSWORD)) "ACTIVE" else "Not Set"}):"
-            typeface = Typeface.DEFAULT_BOLD
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-        }
-        val passInput = EditText(this).apply {
-            hint = "Enter 4+ character Password"
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-        }
-        val savePassBtn = Button(this).apply {
-            text = "Save Password"
-            setTextColor(Color.parseColor("#06130E"))
-            background = GradientDrawable().apply { setColor(Color.parseColor("#10B981")); cornerRadius = 18f }
-            setOnClickListener {
-                val v = passInput.text.toString()
-                if (v.length >= 4) {
-                    storage.setCredentialForType(LockStorage.AuthType.PASSWORD, v)
-                    passInput.text.clear()
-                    passHeader.text = "\n2. Password Lock (ACTIVE):"
-                    updateFooter()
-                    showAnimatedNotification("Password Saved!")
-                } else Toast.makeText(this@MainActivity, "Min 4 characters", Toast.LENGTH_SHORT).show()
-            }
-        }
-
-        // Section 3: Compact 3x3 Pattern Lock
-        val patternHeader = TextView(this).apply {
-            text = "\n3. Pattern Lock (${if (storage.hasCredential(LockStorage.AuthType.PATTERN)) "ACTIVE" else "Not Set"}):"
-            typeface = Typeface.DEFAULT_BOLD
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-        }
-
-        var firstPatternAttempt: String? = null
-        val patternPromptText = TextView(this).apply {
-            text = "Draw pattern (connect at least 4 dots):"
-            gravity = Gravity.CENTER
-        }
-
-        val patternSetupView = PatternLockView(this).apply {
-            compactMode = true
-            onPatternComplete = { drawn ->
-                if (drawn.length < 4) {
-                    Toast.makeText(this@MainActivity, "Connect at least 4 dots", Toast.LENGTH_SHORT).show()
-                } else if (firstPatternAttempt == null) {
-                    firstPatternAttempt = drawn
-                    patternPromptText.text = "Draw same pattern again to confirm:"
-                } else if (firstPatternAttempt == drawn) {
-                    storage.setCredentialForType(LockStorage.AuthType.PATTERN, drawn)
-                    firstPatternAttempt = null
-                    patternHeader.text = "\n3. Pattern Lock (ACTIVE):"
-                    patternPromptText.text = "Pattern saved! Draw again to update:"
-                    updateFooter()
-                    showAnimatedNotification("Pattern Saved!")
-                } else {
-                    firstPatternAttempt = null
-                    patternPromptText.text = "Didn't match. Draw pattern again:"
-                    Toast.makeText(this@MainActivity, "Patterns did not match", Toast.LENGTH_SHORT).show()
-                }
-            }
-        }
-
-        val hidePatternSwitch = Switch(this).apply {
-            text = "Hide Pattern Path"
-            isChecked = storage.isPatternHidden
-            setOnCheckedChangeListener { _, checked ->
-                storage.isPatternHidden = checked
-                showAnimatedNotification(if (checked) "Pattern Path Hidden" else "Pattern Path Visible")
-            }
-        }
-
-        val lockOnExitSwitch = Switch(this).apply {
-            text = "\nLock Immediately on App Exit"
-            isChecked = storage.isLockOnExitEnabled
-            setOnCheckedChangeListener { _, checked ->
-                storage.isLockOnExitEnabled = checked
-                showAnimatedNotification(if (checked) "Lock on Exit: ON" else "Lock on Exit: OFF")
-            }
-        }
-
-        val idleOptions = listOf(
-            "Disabled (No idle timeout)" to 0,
-            "After 15 seconds" to 15,
-            "After 30 seconds" to 30,
-            "After 1 minute" to 60,
-            "After 5 minutes" to 300
-        )
-
-        val idleLabel = TextView(this).apply {
-            text = "\nInactivity / Idle Lock Timeout:"
-            typeface = Typeface.DEFAULT_BOLD
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-        }
-
-        val idleSpinner = Spinner(this).apply {
-            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, idleOptions.map { it.first })
-            val idx = idleOptions.indexOfFirst { it.second == storage.idleTimeoutSeconds }
-            if (idx >= 0) setSelection(idx)
-            onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-                var init = true
-                override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
-                    if (init) { init = false; return }
-                    storage.idleTimeoutSeconds = idleOptions[pos].second
-                    showAnimatedNotification("Idle Timeout: ${idleOptions[pos].first}", "#38BDF8", "#0B1120")
-                }
-                override fun onNothingSelected(p: AdapterView<*>?) {}
-            }
-        }
-
-        val bioSwitch = Switch(this).apply {
-            text = "\nFace Unlock / Fingerprint / System Lock"
-            isChecked = storage.isFingerprintEnabled
-            setOnCheckedChangeListener { _, checked ->
-                storage.isFingerprintEnabled = checked
-                updateBioQuickButtonUI()
-                showAnimatedNotification(if (checked) "Biometric & Device Lock Enabled" else "Biometric Disabled")
-            }
-        }
-
-        container.addView(accessBtn)
-        container.addView(miAppInfoBtn)
-        container.addView(pinHeader)
-        container.addView(pinInput)
-        container.addView(savePinBtn)
-        container.addView(passHeader)
-        container.addView(passInput)
-        container.addView(savePassBtn)
-        container.addView(patternHeader)
-        container.addView(patternPromptText)
-        container.addView(patternSetupView)
-        container.addView(hidePatternSwitch)
-        container.addView(lockOnExitSwitch)
-        container.addView(idleLabel)
-        container.addView(idleSpinner)
-        container.addView(bioSwitch)
-        scroll.addView(container)
-
-        AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
-            .setTitle("HS AppLock Settings")
-            .setView(scroll)
-            .setPositiveButton("Done", null)
-            .show()
+        }, 1900)
     }
 }
