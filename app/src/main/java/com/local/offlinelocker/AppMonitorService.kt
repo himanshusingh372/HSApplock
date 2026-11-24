@@ -2,21 +2,10 @@ package com.local.offlinelocker
 
 import android.accessibilityservice.AccessibilityService
 import android.content.Intent
-import android.graphics.Color
-// import android.graphics.PixelFormat
-import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
-// import android.provider.Settings
-import android.view.Gravity
-import android.view.View
-// import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
-// import android.widget.FrameLayout
-// import android.widget.ImageView
-// import android.widget.LinearLayout
-// import android.widget.TextView
 
 class AppMonitorService : AccessibilityService() {
 
@@ -57,14 +46,17 @@ class AppMonitorService : AccessibilityService() {
         storage = LockStorage(this)
     }
 
+    private fun isUninstallOrAdminPackage(pkg: String): Boolean {
+        return pkg == "com.google.android.packageinstaller" ||
+            pkg == "com.android.packageinstaller" ||
+            pkg == "com.miui.packageinstaller"
+    }
+
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (storage.isMasterPaused) return
         val eventType = event?.eventType ?: return
-
-
         val pkg = event.packageName?.toString() ?: return
         if (pkg == packageName || pkg == "com.android.systemui") return
-
 
         if (eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
             if (pkg == activeUnlockedPackage) {
@@ -77,12 +69,29 @@ class AppMonitorService : AccessibilityService() {
             val previousPkg = activeUnlockedPackage!!
             idleHandler.removeCallbacks(idleCheckRunnable)
 
-                       if (storage.isLockOnExitEnabled) {
+            if (storage.isLockOnExitEnabled && !isUninstallOrAdminPackage(previousPkg)) {
                 lastInteractionMap.remove(previousPkg)
             } else {
                 lastInteractionMap[previousPkg] = SystemClock.elapsedRealtime()
             }
             activeUnlockedPackage = null
+        }
+
+        // Ask for PIN / Pattern / Password before uninstalling any app
+        if (storage.isAntiUninstallEnabled && isUninstallOrAdminPackage(pkg)) {
+            val lastUnlock = lastInteractionMap[pkg] ?: 0L
+            val withinGraceWindow = (SystemClock.elapsedRealtime() - lastUnlock) < 15_000L
+            if (!withinGraceWindow) {
+                lastInteractionMap.remove(pkg)
+                activeUnlockedPackage = null
+                idleHandler.removeCallbacks(idleCheckRunnable)
+                launchLockScreen(pkg)
+                return
+            } else {
+                activeUnlockedPackage = pkg
+                lastInteractionMap[pkg] = SystemClock.elapsedRealtime()
+                return
+            }
         }
 
         if (storage.getLockedApps().contains(pkg)) {
@@ -99,8 +108,6 @@ class AppMonitorService : AccessibilityService() {
             launchLockScreen(pkg)
         }
     }
-
-
 
     private fun isSessionStillValid(pkg: String): Boolean {
         val lastTouch = lastInteractionMap[pkg] ?: return false
