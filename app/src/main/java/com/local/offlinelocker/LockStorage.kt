@@ -55,7 +55,7 @@ class LockStorage(context: Context) {
         set(value) = prefs.edit().putBoolean("master_paused", value).apply()
 
     var isFingerprintEnabled: Boolean
-        get() = prefs.getBoolean("biometric_enabled", true)
+        get() = prefs.getBoolean("biometric_enabled", false)
         set(value) = prefs.edit().putBoolean("biometric_enabled", value).apply()
 
     var isPatternHidden: Boolean
@@ -66,9 +66,9 @@ class LockStorage(context: Context) {
         get() = prefs.getBoolean("lock_on_exit", true)
         set(value) = prefs.edit().putBoolean("lock_on_exit", value).apply()
 
-    var isBackgroundBlurEnabled: Boolean
-        get() = prefs.getBoolean("bg_blur_enabled", true)
-        set(value) = prefs.edit().putBoolean("bg_blur_enabled", value).apply()
+    // var isBackgroundBlurEnabled: Boolean
+    //     get() = prefs.getBoolean("bg_blur_enabled", true)
+    //     set(value) = prefs.edit().putBoolean("bg_blur_enabled", value).apply()
 
     var idleTimeoutSeconds: Int
         get() = prefs.getInt("idle_timeout_sec", 30)
