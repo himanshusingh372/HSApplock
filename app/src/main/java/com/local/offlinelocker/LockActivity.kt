@@ -42,7 +42,12 @@ class LockActivity : FragmentActivity() {
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                goHome()
+                if (targetPackage == "DISABLE_ANTI_UNINSTALL") {
+                    setResult(RESULT_CANCELED)
+                    finish()
+                } else {
+                    goHome()
+                }
             }
         })
 
@@ -54,6 +59,8 @@ class LockActivity : FragmentActivity() {
     }
 
     private fun getTargetAppLabel(): String {
+        if (targetPackage.contains("packageinstaller")) return "Uninstall Protection"
+        if (targetPackage == "DISABLE_ANTI_UNINSTALL") return "Disable Uninstall Blocker"
         return try {
             val info = packageManager.getApplicationInfo(targetPackage, 0)
             packageManager.getApplicationLabel(info).toString()
@@ -151,7 +158,7 @@ class LockActivity : FragmentActivity() {
 
         val subtitle = TextView(this).apply {
             text = if (activeAuthMode == LockStorage.AuthType.PATTERN) "Draw unlock pattern"
-            else "Enter ${activeAuthMode.name} to unlock"
+            else "Enter ${activeAuthMode.name} to continue"
             textSize = 13f
             setTextColor(Color.parseColor("#94A3B8"))
             gravity = Gravity.CENTER
@@ -339,7 +346,11 @@ class LockActivity : FragmentActivity() {
     }
 
     private fun onUnlocked() {
-        AppMonitorService.markAppUnlocked(targetPackage)
+        if (targetPackage == "DISABLE_ANTI_UNINSTALL") {
+            setResult(RESULT_OK)
+        } else {
+            AppMonitorService.markAppUnlocked(targetPackage)
+        }
         finish()
     }
 
