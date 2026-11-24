@@ -1,6 +1,7 @@
 package com.local.offlinelocker
 
 import android.accessibilityservice.AccessibilityService
+import android.accessibilityservice.AccessibilityGestureEvent
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
@@ -60,6 +61,27 @@ class AppMonitorService : AccessibilityService() {
         fun refreshFloatingBubble() {
             instance?.syncFloatingBubbleState()
         }
+
+        override fun onGesture(gestureEvent: AccessibilityGestureEvent): Boolean {
+    when (gestureEvent.gestureId) {
+        GESTURE_3_FINGER_SWIPE_DOWN -> {
+            triggerSystemScreenshot()
+            return true
+        }
+        GESTURE_3_FINGER_SWIPE_UP -> {
+            toggleTorch(this)
+            return true
+        }
+        GESTURE_3_FINGER_DOUBLE_TAP -> {
+            val launch = packageManager.getLaunchIntentForPackage(packageName)?.apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            if (launch != null) startActivity(launch)
+            return true
+        }
+    }
+    return super.onGesture(gestureEvent)
+}
     }
 
     private val idleCheckRunnable = object : Runnable {
