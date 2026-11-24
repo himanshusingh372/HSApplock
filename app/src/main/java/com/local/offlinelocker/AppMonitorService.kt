@@ -315,7 +315,11 @@ class AppMonitorService : AccessibilityService() {
         }
 
         val pkg = event.packageName?.toString() ?: return
-        if (pkg == packageName || pkg == "com.android.systemui") return
+       if (pkg == "com.google.android.apps.nexuslauncher" && activeUnlockedPackage != null) {
+    if (storage.isBackgroundBlurEnabled && storage.getLockedApps().contains(activeUnlockedPackage)) {
+        showBackgroundBlurShield()
+    }
+}
 
         if (eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
             if (pkg == activeUnlockedPackage) {
