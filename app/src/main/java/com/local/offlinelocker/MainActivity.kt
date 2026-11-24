@@ -1,3 +1,4 @@
+
 package com.local.offlinelocker
 
 import android.accessibilityservice.AccessibilityServiceInfo
@@ -855,7 +856,7 @@ class MainActivity : FragmentActivity() {
         }
 
         authCard.addView(pinInput)
-        authCard.addView(savePinBtn)
+        authCard.addView(savePinBtn)N
         authCard.addView(passInput)
         authCard.addView(savePassBtn)
         authCard.addView(patternPrompt)
@@ -1015,7 +1016,7 @@ class MainActivity : FragmentActivity() {
             .setInterpolator(OvershootInterpolator(1.1f))
             .start()
 
-        bannerHandler.postDelayed({
+       bannerHandler.postDelayed({
             popupBanner.animate()
                 .translationY(-140f)
                 .alpha(0f)
