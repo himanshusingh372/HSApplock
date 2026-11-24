@@ -1206,7 +1206,7 @@ startActivity(Intent(Settings.ACTION_SECURITY_SETTINGS))
         }
 
         val patternSetupView = PatternLockView(this).apply {
-            ccompactMode = true
+            compactMode = true
             onPatternComplete = { drawn ->
                 if (drawn.length < 4) {
                     Toast.makeText(this@MainActivity, "Connect at least 4 dots", Toast.LENGTH_SHORT).show()
