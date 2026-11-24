@@ -10,9 +10,9 @@ import kotlin.math.hypot
 
 class PatternLockView(context: Context) : View(context) {
 
-    var compactMode: Boolean = false
     var onPatternComplete: ((String) -> Unit)? = null
     var hidePattern: Boolean = false
+    var compactMode: Boolean = false
 
     private val selectedNodes = mutableListOf<Int>()
     private var currentTouchX = -1f
@@ -62,9 +62,9 @@ class PatternLockView(context: Context) : View(context) {
         return Pair(cellW * col + cellW / 2f, cellH * row + cellH / 2f)
     }
 
-   override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val screenWidth = resources.displayMetrics.widthPixels
-        val ratio = if (compactMode) 0.48f else 0.74f
+        val ratio = if (compactMode) 0.46f else 0.74f
         val targetSize = (screenWidth * ratio).toInt()
         val widthMode = MeasureSpec.getMode(widthMeasureSpec)
         val widthSize = MeasureSpec.getSize(widthMeasureSpec)
@@ -93,11 +93,15 @@ class PatternLockView(context: Context) : View(context) {
             }
         }
 
+        val ringRadius = if (compactMode) 32f else 48f
+        val activeDotRadius = if (compactMode) 14f else 20f
+        val idleDotRadius = if (compactMode) 10f else 14f
+
         for (i in 0 until 9) {
             val (cx, cy) = getNodeCenter(i)
             val showActive = !hidePattern && selectedNodes.contains(i)
-            canvas.drawCircle(cx, cy, 48f, if (showActive) activeRingPaint else outerRingPaint)
-            canvas.drawCircle(cx, cy, if (showActive) 20f else 14f, if (showActive) activeDotPaint else dotPaint)
+            canvas.drawCircle(cx, cy, ringRadius, if (showActive) activeRingPaint else outerRingPaint)
+            canvas.drawCircle(cx, cy, if (showActive) activeDotRadius else idleDotRadius, if (showActive) activeDotPaint else dotPaint)
         }
     }
 
@@ -144,7 +148,7 @@ class PatternLockView(context: Context) : View(context) {
     }
 
     private fun checkHit(x: Float, y: Float) {
-        val hitRadius = (width / 3f) * 0.40f
+        val hitRadius = (width / 3f) * 0.42f
         for (i in 0 until 9) {
             if (selectedNodes.contains(i)) continue
             val (cx, cy) = getNodeCenter(i)
