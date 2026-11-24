@@ -10,6 +10,7 @@ import kotlin.math.hypot
 
 class PatternLockView(context: Context) : View(context) {
 
+    var compactMode: Boolean = false
     var onPatternComplete: ((String) -> Unit)? = null
     var hidePattern: Boolean = false
 
@@ -62,6 +63,8 @@ class PatternLockView(context: Context) : View(context) {
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        val ratio = if (compactMode) 0.48f else 0.74f
+val targetSize = (screenWidth * ratio).toInt()
         val screenWidth = resources.displayMetrics.widthPixels
         val targetSize = (screenWidth * 0.74f).toInt()
         val widthMode = MeasureSpec.getMode(widthMeasureSpec)
