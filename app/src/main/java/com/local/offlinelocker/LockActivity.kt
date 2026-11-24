@@ -162,7 +162,6 @@ class LockActivity : FragmentActivity() {
         card.addView(appTitle)
         card.addView(subtitle)
 
-        // Mode switcher bar if user configured multiple credentials (PIN + Pattern + Password)
         val configuredModes = storage.getConfiguredAuthTypes()
         if (configuredModes.size > 1) {
             val modeSwitchRow = LinearLayout(this).apply {
@@ -276,7 +275,7 @@ class LockActivity : FragmentActivity() {
         }
 
         val bioBtn = Button(this).apply {
-            text = "Touch Fingerprint"
+            text = "Face Unlock / Fingerprint / System Lock"
             setTextColor(Color.parseColor("#38BDF8"))
             background = GradientDrawable().apply {
                 setColor(Color.parseColor("#0B1120"))
@@ -288,7 +287,7 @@ class LockActivity : FragmentActivity() {
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             )
-            setOnClickListener { triggerFingerprintPrompt() }
+            setOnClickListener { triggerBiometricAndDevicePrompt() }
         }
 
         card.addView(bioBtn)
@@ -297,7 +296,7 @@ class LockActivity : FragmentActivity() {
         setContentView(rootFrame)
 
         if (storage.isFingerprintEnabled) {
-            triggerFingerprintPrompt()
+            triggerBiometricAndDevicePrompt()
         }
     }
 
@@ -309,11 +308,16 @@ class LockActivity : FragmentActivity() {
         }.start()
     }
 
-private fun triggerFingerprintPrompt() {
+    private fun triggerBiometricAndDevicePrompt() {
         val biometricManager = BiometricManager.from(this)
-        val authenticators = BiometricManager.Authenticators.BIOMETRIC_STRONG or
+        val authenticators = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            BiometricManager.Authenticators.BIOMETRIC_STRONG or
+                BiometricManager.Authenticators.BIOMETRIC_WEAK or
+                BiometricManager.Authenticators.DEVICE_CREDENTIAL
+        } else {
             BiometricManager.Authenticators.BIOMETRIC_WEAK or
-            BiometricManager.Authenticators.DEVICE_CREDENTIAL
+                BiometricManager.Authenticators.DEVICE_CREDENTIAL
+        }
 
         if (biometricManager.canAuthenticate(authenticators) != BiometricManager.BIOMETRIC_SUCCESS) return
 
