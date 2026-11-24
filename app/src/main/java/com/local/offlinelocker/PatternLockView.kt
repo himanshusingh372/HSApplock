@@ -62,11 +62,10 @@ class PatternLockView(context: Context) : View(context) {
         return Pair(cellW * col + cellW / 2f, cellH * row + cellH / 2f)
     }
 
-    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-        val ratio = if (compactMode) 0.48f else 0.74f
-val targetSize = (screenWidth * ratio).toInt()
+   override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val screenWidth = resources.displayMetrics.widthPixels
-        val targetSize = (screenWidth * 0.74f).toInt()
+        val ratio = if (compactMode) 0.48f else 0.74f
+        val targetSize = (screenWidth * ratio).toInt()
         val widthMode = MeasureSpec.getMode(widthMeasureSpec)
         val widthSize = MeasureSpec.getSize(widthMeasureSpec)
         val finalSize = when (widthMode) {
