@@ -310,9 +310,18 @@ class LockActivity : FragmentActivity() {
     }
 
     private fun triggerFingerprintPrompt() {
-        val biometricManager = BiometricManager.from(this)
-        if (biometricManager.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG)
-            != BiometricManager.BIOMETRIC_SUCCESS
+       // In LockActivity.kt -> replace triggerFingerprintPrompt() body with:
+val authenticators = BiometricManager.Authenticators.BIOMETRIC_STRONG or
+    BiometricManager.Authenticators.BIOMETRIC_WEAK or
+    BiometricManager.Authenticators.DEVICE_CREDENTIAL
+
+val promptInfo = BiometricPrompt.PromptInfo.Builder()
+    .setTitle("Unlock ${getTargetAppLabel()}")
+    .setSubtitle("Use Face Unlock, Fingerprint, or Device PIN/Pattern")
+    .setAllowedAuthenticators(authenticators)
+    .build()
+
+prompt.authenticate(promptInfo)
         ) return
 
         val executor = ContextCompat.getMainExecutor(this)
