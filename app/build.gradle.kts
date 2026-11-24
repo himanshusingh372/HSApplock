@@ -7,14 +7,14 @@ android {
     namespace = "com.local.offlinelocker"
     compileSdk = 35
 
-   defaultConfig {
-    applicationId = "com.local.offlinelocker"
-    minSdk = 28
-    targetSdk = 35
-    versionCode = 3
-    versionName = "3.0"
-    base.archivesName.set("HS-AppLock-v${versionName}")
-}
+    defaultConfig {
+        applicationId = "com.local.offlinelocker"
+        minSdk = 28
+        targetSdk = 35
+        versionCode = 4
+        versionName = "4.0"
+        base.archivesName.set("HS-AppLock-v${versionName}")
+    }
 
     buildTypes {
         debug {
