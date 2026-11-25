@@ -1,2 +1,3 @@
 # HSApplock
-Offline free App lock
+Offline free App lock  and wifi/internet blocker add free
+for true os 
