@@ -715,3 +715,506 @@ class MainActivity : FragmentActivity() {
                     }
                     AlertDialog.Builder(this@MainActivity)
                         .setTitle(if (isLocked) "Unlock App?" else "Lock App?")
+                        .setMessage(
+                            if (isLocked) "Remove lock from ${app.name}?"
+                            else "Add lock protection to ${app.name}?"
+                        )
+                        .setPositiveButton("Confirm") { _, _ ->
+                            val updated = storage.getLockedApps().toMutableSet()
+                            if (isLocked) {
+                                updated.remove(app.packageName)
+                                storage.setLockedApps(updated)
+                                storage.clearAppUnlocked(app.packageName)
+                                showBanner("${app.name}: Unlocked", "#64748B")
+                            } else {
+                                updated.add(app.packageName)
+                                storage.setLockedApps(updated)
+                                showBanner("${app.name}: Locked", "#0277BD")
+                            }
+                            refreshAppList(preserveScroll = true)
+                        }
+                        .setNegativeButton("Cancel", null)
+                        .show()
+                }
+
+                return row
+            }
+        }
+
+        if (preserveScroll) {
+            listView.setSelectionFromTop(savedIndex, savedTop)
+        }
+    }
+
+    private fun makeActionPill(
+        label: String,
+        active: Boolean,
+        activeColor: Int,
+        inactiveStroke: Int,
+        inactiveText: Int,
+        onClick: () -> Unit
+    ): TextView {
+        return TextView(this).apply {
+            text = label
+            textSize = 9.5f
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            setPadding(14, 12, 14, 12)
+            setTextColor(if (active) Color.WHITE else inactiveText)
+            background = GradientDrawable().apply {
+                setColor(if (active) activeColor else Color.WHITE)
+                cornerRadius = 30.0f
+                setStroke(2, if (active) activeColor else inactiveStroke)
+            }
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                rightMargin = 10
+            }
+            setOnClickListener { onClick() }
+        }
+    }
+
+    private fun buildSettingsPage(): ScrollView {
+        val scroll = ScrollView(this).apply {
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
+        }
+
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(28, 24, 28, 120)
+        }
+
+        fun makeCard(): LinearLayout {
+            return LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(32, 28, 32, 28)
+                background = GradientDrawable().apply {
+                    setColor(Color.WHITE)
+                    cornerRadius = 24.0f
+                    setStroke(2, Color.parseColor("#E2E8F0"))
+                }
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { bottomMargin = 20 }
+            }
+        }
+
+        fun makeSectionTitle(title: String): TextView {
+            return TextView(this).apply {
+                text = title
+                textSize = 14.0f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(COLOR_PRIMARY_BLUE)
+                setPadding(0, 0, 0, 14)
+            }
+        }
+
+        val controlCard = makeCard()
+        controlCard.addView(makeSectionTitle("PROTECTION & LOCK MODES"))
+
+        selfLockSwitchRef = Switch(this).apply {
+            text = "Master Lock for HS AppLock Itself"
+            textSize = 14.0f
+            setTextColor(COLOR_TEXT_DARK)
+            isChecked = storage.isSelfLockEnabled
+            setOnCheckedChangeListener { _, checked ->
+                storage.isSelfLockEnabled = checked
+                isSelfUnlocked = !checked
+                showBanner(if (checked) "HS AppLock Master Lock: ON" else "HS AppLock Master Lock: OFF")
+            }
+        }
+
+        instantLockSwitchRef = Switch(this).apply {
+            text = "\nInstant Lock (On Recents, Exit, or Background Close)"
+            textSize = 14.0f
+            setTextColor(COLOR_TEXT_DARK)
+            isChecked = storage.isInstantLockEnabled
+            setOnCheckedChangeListener { _, checked ->
+                storage.isInstantLockEnabled = checked
+                if (checked) storage.clearAllUnlockedApps()
+                showBanner(if (checked) "Instant Lock: ON" else "Instant Lock: OFF")
+            }
+        }
+
+        settingsLockSwitchRef = Switch(this).apply {
+            text = "\nLock System Settings"
+            textSize = 14.0f
+            setTextColor(COLOR_TEXT_DARK)
+            isChecked = storage.isSettingsLockEnabled
+            setOnCheckedChangeListener { _, checked ->
+                storage.isSettingsLockEnabled = checked
+                showBanner(if (checked) "Settings Lock: ON" else "Settings Lock: OFF")
+            }
+        }
+
+        appInfoLockSwitchRef = Switch(this).apply {
+            text = "\nLock App Info Screens (All Apps)"
+            textSize = 14.0f
+            setTextColor(COLOR_TEXT_DARK)
+            isChecked = storage.isAppInfoLockEnabled
+            setOnCheckedChangeListener { _, checked ->
+                storage.isAppInfoLockEnabled = checked
+                showBanner(if (checked) "App Info Lock: ON" else "App Info Lock: OFF")
+            }
+        }
+
+        masterPauseSwitchRef = Switch(this).apply {
+            text = "\nTemporarily Pause All App Locks"
+            textSize = 14.0f
+            setTextColor(COLOR_TEXT_DARK)
+            isChecked = storage.isMasterPaused
+            setOnCheckedChangeListener { _, checked ->
+                storage.isMasterPaused = checked
+                storage.clearAllUnlockedApps()
+                showBanner(
+                    if (checked) "All Locks Temporarily OFF" else "Vault Protection Active",
+                    if (checked) "#F57C00" else "#0277BD"
+                )
+            }
+        }
+
+        antiUninstallSwitchRef = Switch(this).apply {
+            text = "\nUninstall Blocker (Protect All Apps & AppLock)"
+            textSize = 14.0f
+            setTextColor(COLOR_TEXT_DARK)
+            isChecked = isAntiUninstallActive()
+            setOnClickListener { toggleAntiUninstallRestriction() }
+        }
+
+        bioSwitchRef = Switch(this).apply {
+            text = "\nFingerprint / Face Unlock / System Lock"
+            textSize = 14.0f
+            setTextColor(COLOR_TEXT_DARK)
+            isChecked = storage.isFingerprintEnabled
+            setOnCheckedChangeListener { _, checked ->
+                storage.isFingerprintEnabled = checked
+                showBanner(if (checked) "Fingerprint / Face Unlock: ON" else "Fingerprint / Face Unlock: OFF")
+            }
+        }
+
+        controlCard.addView(selfLockSwitchRef)
+        controlCard.addView(instantLockSwitchRef)
+        controlCard.addView(settingsLockSwitchRef)
+        controlCard.addView(appInfoLockSwitchRef)
+        controlCard.addView(masterPauseSwitchRef)
+        controlCard.addView(antiUninstallSwitchRef)
+        controlCard.addView(bioSwitchRef)
+
+        val authCard = makeCard()
+        authCard.addView(makeSectionTitle("AUTHENTICATION CREDENTIALS"))
+
+        val pinInput = EditText(this).apply {
+            hint = "Set 4+ Digit PIN (${if (storage.hasCredential(LockStorage.AuthType.PIN)) "ACTIVE" else "Not Set"})"
+            setTextColor(COLOR_TEXT_DARK)
+            setHintTextColor(COLOR_TEXT_MUTED)
+            inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD
+        }
+        val savePinBtn = Button(this).apply {
+            text = "Save PIN"
+            setTextColor(Color.WHITE)
+            background = GradientDrawable().apply { setColor(COLOR_PRIMARY_BLUE); cornerRadius = 18.0f }
+            setOnClickListener {
+                val v = pinInput.text.toString()
+                if (v.length >= 4) {
+                    storage.setCredentialForType(LockStorage.AuthType.PIN, v)
+                    pinInput.text.clear()
+                    pinInput.hint = "Set 4+ Digit PIN (ACTIVE)"
+                    showBanner("PIN Saved!")
+                } else showBanner("Enter at least 4 digits", "#B91C1C")
+            }
+        }
+
+        val passInput = EditText(this).apply {
+            hint = "Set Password (${if (storage.hasCredential(LockStorage.AuthType.PASSWORD)) "ACTIVE" else "Not Set"})"
+            setTextColor(COLOR_TEXT_DARK)
+            setHintTextColor(COLOR_TEXT_MUTED)
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = 20 }
+        }
+        val savePassBtn = Button(this).apply {
+            text = "Save Password"
+            setTextColor(Color.WHITE)
+            background = GradientDrawable().apply { setColor(COLOR_PRIMARY_BLUE); cornerRadius = 18.0f }
+            setOnClickListener {
+                val v = passInput.text.toString()
+                if (v.length >= 4) {
+                    storage.setCredentialForType(LockStorage.AuthType.PASSWORD, v)
+                    passInput.text.clear()
+                    passInput.hint = "Set Password (ACTIVE)"
+                    showBanner("Password Saved!")
+                } else showBanner("Enter at least 4 characters", "#B91C1C")
+            }
+        }
+
+        var firstPattern: String? = null
+        val patternPrompt = TextView(this).apply {
+            text = "\nDraw 3x3 Pattern (${if (storage.hasCredential(LockStorage.AuthType.PATTERN)) "ACTIVE" else "Not Set"}):"
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(COLOR_TEXT_DARK)
+            gravity = Gravity.CENTER
+        }
+
+        val patternView = PatternLockView(this).apply {
+            compactMode = true
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                gravity = Gravity.CENTER_HORIZONTAL
+                topMargin = 12
+                bottomMargin = 12
+            }
+            onPatternComplete = { drawn ->
+                if (drawn.length < 4) {
+                    showBanner("Connect at least 4 dots", "#B91C1C")
+                } else if (firstPattern == null) {
+                    firstPattern = drawn
+                    patternPrompt.text = "\nDraw the same pattern again to confirm:"
+                } else if (firstPattern == drawn) {
+                    storage.setCredentialForType(LockStorage.AuthType.PATTERN, drawn)
+                    firstPattern = null
+                    patternPrompt.text = "\nPattern ACTIVE! Draw again to update:"
+                    showBanner("Pattern Saved!")
+                } else {
+                    firstPattern = null
+                    patternPrompt.text = "\nPatterns didn't match. Draw again:"
+                    showBanner("Patterns did not match", "#B91C1C")
+                }
+            }
+        }
+
+        val hidePatternSwitch = Switch(this).apply {
+            text = "Hide Pattern Line While Drawing"
+            textSize = 14.0f
+            setTextColor(COLOR_TEXT_DARK)
+            isChecked = storage.isPatternHidden
+            setOnCheckedChangeListener { _, checked ->
+                storage.isPatternHidden = checked
+                showBanner(if (checked) "Pattern Path Hidden" else "Pattern Path Visible")
+            }
+        }
+
+        authCard.addView(pinInput)
+        authCard.addView(savePinBtn)
+        authCard.addView(passInput)
+        authCard.addView(savePassBtn)
+        authCard.addView(patternPrompt)
+        authCard.addView(patternView)
+        authCard.addView(hidePatternSwitch)
+
+        val sysCard = makeCard()
+        sysCard.addView(makeSectionTitle("TIMEOUT & SYSTEM PERMISSIONS"))
+
+        val idleOptions = listOf(
+            "Idle Timeout: Disabled" to 0,
+            "Idle Timeout: 15 seconds" to 15,
+            "Idle Timeout: 30 seconds" to 30,
+            "Idle Timeout: 1 minute" to 60,
+            "Idle Timeout: 5 minutes" to 300
+        )
+
+        val idleAdapter = object : ArrayAdapter<String>(
+            this,
+            android.R.layout.simple_spinner_item,
+            idleOptions.map { it.first }
+        ) {
+            override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
+                val tv = super.getView(position, convertView, parent) as TextView
+                tv.setTextColor(Color.parseColor("#090D16"))
+                tv.setBackgroundColor(Color.parseColor("#E2E8F0"))
+                tv.typeface = Typeface.DEFAULT_BOLD
+                tv.textSize = 14.0f
+                tv.setPadding(24, 24, 24, 24)
+                return tv
+            }
+
+            override fun getDropDownView(position: Int, convertView: View?, parent: ViewGroup): View {
+                val tv = super.getDropDownView(position, convertView, parent) as TextView
+                tv.setTextColor(Color.parseColor("#090D16"))
+                tv.setBackgroundColor(Color.parseColor("#F1F5F9"))
+                tv.typeface = Typeface.DEFAULT_BOLD
+                tv.textSize = 14.0f
+                tv.setPadding(28, 28, 28, 28)
+                return tv
+            }
+        }
+
+        val idleSpinner = Spinner(this).apply {
+            adapter = idleAdapter
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#E2E8F0"))
+                cornerRadius = 16.0f
+                setStroke(2, Color.parseColor("#475569"))
+            }
+            val idx = idleOptions.indexOfFirst { it.second == storage.idleTimeoutSeconds }
+            if (idx >= 0) setSelection(idx)
+            onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+                var init = true
+                override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
+                    if (init) { init = false; return }
+                    storage.idleTimeoutSeconds = idleOptions[pos].second
+                    showBanner(idleOptions[pos].first)
+                }
+                override fun onNothingSelected(p: AdapterView<*>?) {}
+            }
+        }
+
+        val accessBtn = Button(this).apply {
+            text = "Open Accessibility Settings"
+            setTextColor(Color.WHITE)
+            background = GradientDrawable().apply { setColor(COLOR_PRIMARY_BLUE); cornerRadius = 18.0f }
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = 16 }
+            setOnClickListener { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
+        }
+
+        val miInfoBtn = Button(this).apply {
+            text = "App Info (MIUI Restricted Settings / Autostart)"
+            setTextColor(COLOR_PRIMARY_BLUE)
+            background = GradientDrawable().apply {
+                setColor(Color.WHITE)
+                cornerRadius = 18.0f
+                setStroke(2, COLOR_PRIMARY_BLUE)
+            }
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = 12 }
+            setOnClickListener {
+                startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
+            }
+        }
+
+        sysCard.addView(idleSpinner)
+        sysCard.addView(accessBtn)
+        sysCard.addView(miInfoBtn)
+
+        container.addView(controlCard)
+        container.addView(authCard)
+        container.addView(sysCard)
+        scroll.addView(container)
+        return scroll
+    }
+
+    private fun isAccessibilityEnabled(): Boolean {
+        val am = getSystemService(Context.ACCESSIBILITY_SERVICE) as AccessibilityManager
+        val enabledServices = am.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK)
+        val expectedComponent = ComponentName(this, AppMonitorService::class.java)
+        return enabledServices.any {
+            val info = it.resolveInfo.serviceInfo
+            ComponentName(info.packageName, info.name) == expectedComponent
+        }
+    }
+
+    private fun isIgnoringBatteryOptimizations(): Boolean {
+        val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+        return pm.isIgnoringBatteryOptimizations(packageName)
+    }
+
+    private fun checkMandatoryPermissions() {
+        if (!isAccessibilityEnabled()) {
+            permissionBanner.visibility = View.VISIBLE
+            permissionBannerText.text = "Accessibility Service is OFF. On MI phones: App Info → Allow restricted settings first."
+            permissionFixBtn.setOnClickListener {
+                startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+            }
+        } else if (!isIgnoringBatteryOptimizations()) {
+            permissionBanner.visibility = View.VISIBLE
+            permissionBannerText.text = "Set Battery to 'No restrictions' so HS AppLock stays active."
+            permissionFixBtn.setOnClickListener {
+                startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName")))
+            }
+        } else {
+            permissionBanner.visibility = View.GONE
+        }
+    }
+
+    private fun syncNetworkFirewall() {
+        val hasAnyBlocks = storage.getWifiBlockedApps().isNotEmpty() || storage.getMobileBlockedApps().isNotEmpty()
+        if (!hasAnyBlocks) {
+            startService(Intent(this, AppFirewallVpnService::class.java).apply {
+                action = AppFirewallVpnService.ACTION_STOP
+            })
+            return
+        }
+
+        val vpnPrepare = VpnService.prepare(this)
+        if (vpnPrepare != null) {
+            startActivityForResult(vpnPrepare, REQ_VPN_PERMISSION)
+        } else {
+            startForegroundService(Intent(this, AppFirewallVpnService::class.java).apply {
+                action = AppFirewallVpnService.ACTION_UPDATE
+            })
+        }
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == REQ_SELF_LOCK_AUTH) {
+            isPromptingSelfLock = false
+            if (resultCode == RESULT_OK) {
+                isSelfUnlocked = true
+            } else {
+                isSelfUnlocked = false
+                finish()
+            }
+        } else if (requestCode == REQ_VPN_PERMISSION && resultCode == RESULT_OK) {
+            startForegroundService(Intent(this, AppFirewallVpnService::class.java).apply {
+                action = AppFirewallVpnService.ACTION_UPDATE
+            })
+            showBanner("Net Guard Firewall Active")
+        } else if (requestCode == REQ_DEVICE_ADMIN) {
+            syncTopLockIconUI()
+            if (::antiUninstallSwitchRef.isInitialized) {
+                antiUninstallSwitchRef.isChecked = isAntiUninstallActive()
+            }
+            if (isAntiUninstallActive()) {
+                showBanner("Uninstall Blocker Enabled!")
+            }
+        } else if (requestCode == REQ_DISABLE_UNINSTALL_AUTH && resultCode == RESULT_OK) {
+            storage.isAntiUninstallEnabled = false
+            dpm.removeActiveAdmin(adminComponent)
+            syncTopLockIconUI()
+            if (::antiUninstallSwitchRef.isInitialized) {
+                antiUninstallSwitchRef.isChecked = false
+            }
+            showBanner("Uninstall Blocker Disabled", "#64748B")
+        }
+    }
+
+    private fun showBanner(message: String, bgHex: String = "#01579B") {
+        bannerHandler.removeCallbacksAndMessages(null)
+        (popupBanner.background as? GradientDrawable)?.setColor(Color.parseColor(bgHex))
+        popupBanner.text = message
+        popupBanner.visibility = View.VISIBLE
+        popupBanner.translationY = -140.0f
+        popupBanner.alpha = 0.0f
+
+        popupBanner.animate()
+            .translationY(0.0f)
+            .alpha(1.0f)
+            .setDuration(260)
+            .setInterpolator(OvershootInterpolator(1.1f))
+            .start()
+
+        bannerHandler.postDelayed({
+            popupBanner.animate()
+                .translationY(-140.0f)
+                .alpha(0.0f)
+                .setDuration(220)
+                .withEndAction { popupBanner.visibility = View.GONE }
+                .start()
+        }, 1900)
+    }
+}
