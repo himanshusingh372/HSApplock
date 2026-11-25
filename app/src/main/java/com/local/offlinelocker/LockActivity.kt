@@ -1,5 +1,6 @@
 package com.local.offlinelocker
 
+import android.app.AlertDialog
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
@@ -32,6 +33,7 @@ class LockActivity : FragmentActivity() {
 
         storage = LockStorage(this)
         targetPackage = intent.getStringExtra("TARGET_PACKAGE") ?: ""
+        val isFakeCrash = intent.getBooleanExtra("FAKE_CRASH", false)
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -61,7 +63,6 @@ class LockActivity : FragmentActivity() {
             setPadding(0, 0, 0, 28)
         }
 
-        // Default numeric keypad for PIN
         pinInput = EditText(this).apply {
             hint = "Enter PIN"
             textSize = 18.0f
@@ -99,7 +100,6 @@ class LockActivity : FragmentActivity() {
             setOnClickListener { verifyPin(pinInput.text.toString()) }
         }
 
-        // Password field
         passInput = EditText(this).apply {
             hint = "Enter Password"
             textSize = 16.0f
@@ -134,7 +134,6 @@ class LockActivity : FragmentActivity() {
             setOnClickListener { verifyPassword(passInput.text.toString()) }
         }
 
-        // Pattern view
         patternView = PatternLockView(this).apply {
             compactMode = false
             visibility = View.GONE
@@ -155,7 +154,6 @@ class LockActivity : FragmentActivity() {
             }
         }
 
-        // Mode switcher buttons
         val modeRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
@@ -213,10 +211,45 @@ class LockActivity : FragmentActivity() {
         root.addView(bioBtn)
         setContentView(root)
 
-        showPinMode()
-        if (storage.isFingerprintEnabled && targetPackage != "DISABLE_ANTI_UNINSTALL") {
-            launchBiometricPrompt()
+        if (isFakeCrash) {
+            showFakeCrashDialog()
+        } else {
+            showPinMode()
+            if (storage.isFingerprintEnabled && targetPackage != "DISABLE_ANTI_UNINSTALL") {
+                launchBiometricPrompt()
+            }
         }
+    }
+
+    private fun showFakeCrashDialog() {
+        val appLabel = try {
+            val info = packageManager.getApplicationInfo(targetPackage, 0)
+            packageManager.getApplicationLabel(info).toString()
+        } catch (_: Exception) {
+            "App"
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("$appLabel keeps stopping")
+            .setMessage("App info or close app")
+            .setCancelable(false)
+            .setPositiveButton("Close app") { _, _ ->
+                performGlobalActionHome()
+            }
+            .setNeutralButton("Unlock") { _, _ ->
+                showPinMode()
+                if (storage.isFingerprintEnabled) launchBiometricPrompt()
+            }
+            .show()
+    }
+
+    private fun performGlobalActionHome() {
+        val homeIntent = android.content.Intent(android.content.Intent.ACTION_MAIN).apply {
+            addCategory(android.content.Intent.CATEGORY_HOME)
+            flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+        }
+        startActivity(homeIntent)
+        finish()
     }
 
     private fun showPinMode() {
