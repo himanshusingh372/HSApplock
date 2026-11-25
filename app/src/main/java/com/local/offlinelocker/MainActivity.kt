@@ -468,13 +468,17 @@ class MainActivity : FragmentActivity() {
         }
     }
 
-    private fun updateTabCounts() {
-        val lockedCount = storage.getLockedApps().size
-        val netCount = (storage.getWifiBlockedApps() + storage.getMobileBlockedApps()).size
-        tabLockedText.text = "LOCKED ($lockedCount)"
-        tabNetText.text = "NET GUARD ($netCount)"
-    }
-
+  private fun updateTabCounts() {
+    val lockedCount = storage.getLockedApps().size
+    val netAndCrashCount = (
+        storage.getWifiBlockedApps() +
+            storage.getMobileBlockedApps() +
+            storage.getFakeCrashApps()
+        ).size
+    tabLockedText.text = "LOCKED ($lockedCount)"
+    tabNetText.text = "NET GUARD ($netAndCrashCount)"
+}
+  
     private fun isAntiUninstallActive(): Boolean {
         return storage.isAntiUninstallEnabled && dpm.isAdminActive(adminComponent)
     }
@@ -563,9 +567,20 @@ class MainActivity : FragmentActivity() {
                 Page.ALL_APPS -> true
                 Page.SETTINGS -> false
             }
-            val matchesSearch = searchQuery.isEmpty() || app.name.lowercase().contains(searchQuery)
-            matchesPage && matchesSearch
-        }
+            val crashSet = storage.getFakeCrashApps()
+displayedApps = allLaunchableApps.filter { app ->
+    val matchesPage = when (currentPage) {
+        Page.LOCKED_APP -> lockedSet.contains(app.packageName)
+        Page.NET_GUARDED -> wifiSet.contains(app.packageName) ||
+            cellSet.contains(app.packageName) ||
+            crashSet.contains(app.packageName)
+        Page.ALL_APPS -> true
+        Page.SETTINGS -> false
+    }
+    val matchesSearch = searchQuery.isEmpty() || app.name.lowercase().contains(searchQuery)
+    matchesPage && matchesSearch
+}
+       
 
         if (displayedApps.isEmpty()) {
             emptyStateText.visibility = View.VISIBLE
