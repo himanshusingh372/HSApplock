@@ -10,14 +10,14 @@ class LockStorage(context: Context) {
 
     enum class AuthType { PIN, PASSWORD, PATTERN }
 
-    private val prefs: SharedPreferences = try {
-        val masterKey = MasterKey.Builder(context)
-            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-            .build()
+  private val prefs: SharedPreferences = try {
+        val masterKeyAlias = androidx.security.crypto.MasterKeys.getOrCreate(
+            androidx.security.crypto.MasterKeys.AES256_GCM_SPEC
+        )
         EncryptedSharedPreferences.create(
-            context,
             "hs_applock_secure_prefs",
-            masterKey,
+            masterKeyAlias,
+            context,
             EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_GCM,
             EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
         )
