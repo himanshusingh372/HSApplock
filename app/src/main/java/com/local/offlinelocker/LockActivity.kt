@@ -1,20 +1,15 @@
 package com.local.offlinelocker
 
-import android.app.AlertDialog
-import android.content.Intent
 import android.graphics.Color
-import android.graphics.RenderEffect
-import android.graphics.Shader
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
-import android.os.Build
 import android.os.Bundle
 import android.text.InputType
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
+import android.view.inputmethod.InputMethodManager
 import android.widget.*
-import androidx.activity.OnBackPressedCallback
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.core.content.ContextCompat
@@ -24,342 +19,287 @@ class LockActivity : FragmentActivity() {
 
     private lateinit var storage: LockStorage
     private var targetPackage: String = ""
-    private var crashDialog: AlertDialog? = null
-    private lateinit var activeAuthMode: LockStorage.AuthType
+
+    private lateinit var pinInput: EditText
+    private lateinit var passInput: EditText
+    private lateinit var patternView: PatternLockView
+    private lateinit var statusText: TextView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
-        window.addFlags(WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or WindowManager.LayoutParams.FLAG_SECURE)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            window.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
-            window.attributes.blurBehindRadius = 95
-        }
+        window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE)
 
         storage = LockStorage(this)
         targetPackage = intent.getStringExtra("TARGET_PACKAGE") ?: ""
-        activeAuthMode = storage.getDefaultAuthType()
 
-        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
-            override fun handleOnBackPressed() {
-                if (targetPackage == "DISABLE_ANTI_UNINSTALL") {
-                    setResult(RESULT_CANCELED)
-                    finish()
-                } else {
-                    goHome()
-                }
-            }
-        })
-
-        if (storage.getFakeCrashApps().contains(targetPackage)) {
-            showFakeCrashDialog()
-        } else {
-            showRealLockScreen()
-        }
-    }
-
-    private fun getTargetAppLabel(): String {
-        if (targetPackage.contains("packageinstaller")) return "Uninstall Protection"
-        if (targetPackage == "DISABLE_ANTI_UNINSTALL") return "Disable Uninstall Blocker"
-        return try {
-            val info = packageManager.getApplicationInfo(targetPackage, 0)
-            packageManager.getApplicationLabel(info).toString()
-        } catch (e: Exception) {
-            "Protected App"
-        }
-    }
-
-    private fun showFakeCrashDialog() {
-        val appLabel = getTargetAppLabel()
-
-        crashDialog = AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
-            .setTitle("$appLabel keeps stopping")
-            .setMessage("Close the app and try again.")
-            .setCancelable(false)
-            .setPositiveButton("App info") { _, _ -> goHome() }
-            .setNegativeButton("Close app") { _, _ -> goHome() }
-            .create()
-
-        crashDialog?.show()
-
-        crashDialog?.getButton(AlertDialog.BUTTON_POSITIVE)?.setOnLongClickListener {
-            crashDialog?.dismiss()
-            showRealLockScreen()
-            true
-        }
-    }
-
-    private fun showRealLockScreen() {
-        val rootFrame = FrameLayout(this).apply {
-            layoutParams = FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.MATCH_PARENT
-            )
-        }
-
-        val blurBackdrop = View(this).apply {
-            layoutParams = FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.MATCH_PARENT
-            )
-            background = GradientDrawable(
-                GradientDrawable.Orientation.TL_BR,
-                intArrayOf(
-                    Color.parseColor("#EB060B14"),
-                    Color.parseColor("#F00F172A"),
-                    Color.parseColor("#F5091E2C")
-                )
-            )
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                setRenderEffect(
-                    RenderEffect.createBlurEffect(55f, 55f, Shader.TileMode.CLAMP)
-                )
-            }
-        }
-
-        val card = LinearLayout(this).apply {
+        val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(40, 48, 40, 48)
-            background = GradientDrawable().apply {
-                setColor(Color.parseColor("#D9162032"))
-                cornerRadius = 44f
-                setStroke(2, Color.parseColor("#10B981"))
-            }
-            layoutParams = FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.WRAP_CONTENT,
-                Gravity.CENTER
-            ).apply {
-                setMargins(32, 40, 32, 40)
-            }
+            setBackgroundColor(Color.parseColor("#0F172A"))
+            setPadding(48, 96, 48, 64)
         }
 
-        val lockIconView = ImageView(this).apply {
-            setImageResource(android.R.drawable.ic_lock_idle_lock)
-            setColorFilter(Color.parseColor("#10B981"))
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.OVAL
-                setColor(Color.parseColor("#2610B981"))
+        val titleView = TextView(this).apply {
+            text = when (targetPackage) {
+                "SELF_APP_LOCK" -> "Unlock HS AppLock"
+                "DISABLE_ANTI_UNINSTALL" -> "Confirm Password to Disable Uninstall Blocker"
+                else -> "Authentication Required"
             }
-            setPadding(26, 26, 26, 26)
-            layoutParams = LinearLayout.LayoutParams(124, 124).apply {
-                bottomMargin = 16
-            }
-        }
-
-        val appTitle = TextView(this).apply {
-            text = getTargetAppLabel()
-            textSize = 20f
+            textSize = 20.0f
             typeface = Typeface.DEFAULT_BOLD
-            setTextColor(Color.parseColor("#F8FAFC"))
+            setTextColor(Color.WHITE)
             gravity = Gravity.CENTER
+            setPadding(0, 0, 0, 16)
         }
 
-        val subtitle = TextView(this).apply {
-            text = if (activeAuthMode == LockStorage.AuthType.PATTERN) "Draw unlock pattern"
-            else "Enter ${activeAuthMode.name} to continue"
-            textSize = 13f
+        statusText = TextView(this).apply {
+            text = "Enter PIN, Password, or Pattern"
+            textSize = 13.0f
             setTextColor(Color.parseColor("#94A3B8"))
             gravity = Gravity.CENTER
-            setPadding(0, 6, 0, 20)
+            setPadding(0, 0, 0, 28)
         }
 
-        card.addView(lockIconView)
-        card.addView(appTitle)
-        card.addView(subtitle)
-
-        val configuredModes = storage.getConfiguredAuthTypes()
-        if (configuredModes.size > 1) {
-            val modeSwitchRow = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER
-                setPadding(0, 0, 0, 20)
+        // Default numeric keypad for PIN
+        pinInput = EditText(this).apply {
+            hint = "Enter PIN"
+            textSize = 18.0f
+            gravity = Gravity.CENTER
+            setTextColor(Color.WHITE)
+            setHintTextColor(Color.parseColor("#64748B"))
+            inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#1E293B"))
+                cornerRadius = 20.0f
+                setStroke(2, Color.parseColor("#38BDF8"))
             }
-            for (mode in configuredModes) {
-                val chip = TextView(this).apply {
-                    text = mode.name
-                    textSize = 11f
-                    typeface = Typeface.DEFAULT_BOLD
-                    setPadding(24, 12, 24, 12)
-                    setTextColor(if (mode == activeAuthMode) Color.parseColor("#06130E") else Color.parseColor("#94A3B8"))
-                    background = GradientDrawable().apply {
-                        setColor(if (mode == activeAuthMode) Color.parseColor("#10B981") else Color.parseColor("#0B1120"))
-                        cornerRadius = 20f
-                    }
-                    layoutParams = LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.WRAP_CONTENT,
-                        LinearLayout.LayoutParams.WRAP_CONTENT
-                    ).apply { setMargins(8, 0, 8, 0) }
-                    setOnClickListener {
-                        activeAuthMode = mode
-                        showRealLockScreen()
-                    }
-                }
-                modeSwitchRow.addView(chip)
+            setPadding(28, 24, 28, 24)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            setOnEditorActionListener { _, _, _ ->
+                verifyPin(text.toString())
+                true
             }
-            card.addView(modeSwitchRow)
         }
 
-        if (activeAuthMode == LockStorage.AuthType.PATTERN) {
-            val patternContainer = FrameLayout(this).apply {
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply { bottomMargin = 20 }
+        val unlockPinBtn = Button(this).apply {
+            text = "Unlock with PIN"
+            setTextColor(Color.WHITE)
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#0277BD"))
+                cornerRadius = 18.0f
             }
-            val patternView = PatternLockView(this).apply {
-                hidePattern = storage.isPatternHidden
-                layoutParams = FrameLayout.LayoutParams(
-                    FrameLayout.LayoutParams.WRAP_CONTENT,
-                    FrameLayout.LayoutParams.WRAP_CONTENT,
-                    Gravity.CENTER
-                )
-                onPatternComplete = { drawnCode ->
-                    if (storage.verifyCredential(LockStorage.AuthType.PATTERN, drawnCode)) {
-                        onUnlocked()
-                    } else {
-                        shakeCard(card)
-                        Toast.makeText(this@LockActivity, "Incorrect Pattern", Toast.LENGTH_SHORT).show()
-                    }
-                }
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = 14 }
+            setOnClickListener { verifyPin(pinInput.text.toString()) }
+        }
+
+        // Password field
+        passInput = EditText(this).apply {
+            hint = "Enter Password"
+            textSize = 16.0f
+            setTextColor(Color.WHITE)
+            setHintTextColor(Color.parseColor("#64748B"))
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#1E293B"))
+                cornerRadius = 20.0f
+                setStroke(2, Color.parseColor("#475569"))
             }
-            patternContainer.addView(patternView)
-            card.addView(patternContainer)
-        } else {
-            val input = EditText(this).apply {
-                hint = if (activeAuthMode == LockStorage.AuthType.PIN) "••••" else "Enter Password"
-                setHintTextColor(Color.parseColor("#64748B"))
-                setTextColor(Color.parseColor("#F8FAFC"))
-                textSize = 18f
-                gravity = Gravity.CENTER
-                setPadding(32, 26, 32, 26)
-                background = GradientDrawable().apply {
-                    setColor(Color.parseColor("#0B1120"))
-                    cornerRadius = 24f
-                    setStroke(2, Color.parseColor("#334155"))
-                }
-                inputType = if (activeAuthMode == LockStorage.AuthType.PIN) {
-                    InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD
+            setPadding(28, 22, 28, 22)
+            visibility = View.GONE
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = 20 }
+        }
+
+        val unlockPassBtn = Button(this).apply {
+            text = "Unlock with Password"
+            setTextColor(Color.WHITE)
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#0277BD"))
+                cornerRadius = 18.0f
+            }
+            visibility = View.GONE
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = 14 }
+            setOnClickListener { verifyPassword(passInput.text.toString()) }
+        }
+
+        // Pattern view
+        patternView = PatternLockView(this).apply {
+            compactMode = false
+            visibility = View.GONE
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                gravity = Gravity.CENTER_HORIZONTAL
+                topMargin = 24
+            }
+            onPatternComplete = { drawn ->
+                if (storage.verifyCredential(LockStorage.AuthType.PATTERN, drawn)) {
+                    onAuthSuccess()
                 } else {
-                    InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-                }
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply {
-                    bottomMargin = 24
+                    statusText.text = "Wrong pattern. Try again."
+                    statusText.setTextColor(Color.parseColor("#F87171"))
                 }
             }
-
-            val unlockBtn = Button(this).apply {
-                text = "Unlock"
-                setTextColor(Color.parseColor("#06130E"))
-                typeface = Typeface.DEFAULT_BOLD
-                background = GradientDrawable().apply {
-                    setColor(Color.parseColor("#10B981"))
-                    cornerRadius = 24f
-                }
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply {
-                    bottomMargin = 18
-                }
-                setOnClickListener {
-                    if (storage.verifyCredential(activeAuthMode, input.text.toString())) {
-                        onUnlocked()
-                    } else {
-                        input.text.clear()
-                        shakeCard(card)
-                        Toast.makeText(this@LockActivity, "Wrong ${activeAuthMode.name}", Toast.LENGTH_SHORT).show()
-                    }
-                }
-            }
-
-            card.addView(input)
-            card.addView(unlockBtn)
         }
+
+        // Mode switcher buttons
+        val modeRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = 28 }
+        }
+
+        fun makeModeBtn(label: String, onClick: () -> Unit): Button {
+            return Button(this).apply {
+                text = label
+                textSize = 12.0f
+                setTextColor(Color.parseColor("#E2E8F0"))
+                background = GradientDrawable().apply {
+                    setColor(Color.parseColor("#1E293B"))
+                    cornerRadius = 14.0f
+                    setStroke(1, Color.parseColor("#475569"))
+                }
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f).apply {
+                    rightMargin = 8
+                }
+                setOnClickListener { onClick() }
+            }
+        }
+
+        modeRow.addView(makeModeBtn("PIN") { showPinMode() })
+        modeRow.addView(makeModeBtn("Password") { showPasswordMode() })
+        modeRow.addView(makeModeBtn("Pattern") { showPatternMode() })
 
         val bioBtn = Button(this).apply {
-            text = "Face Unlock / Fingerprint / System Lock"
-            setTextColor(Color.parseColor("#38BDF8"))
+            text = "Use Fingerprint / Biometrics"
+            setTextColor(Color.parseColor("#FDD835"))
             background = GradientDrawable().apply {
-                setColor(Color.parseColor("#0B1120"))
-                cornerRadius = 24f
-                setStroke(2, Color.parseColor("#38BDF8"))
+                setColor(Color.parseColor("#1E293B"))
+                cornerRadius = 16.0f
+                setStroke(1, Color.parseColor("#FDD835"))
             }
             visibility = if (storage.isFingerprintEnabled) View.VISIBLE else View.GONE
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
-            )
-            setOnClickListener { triggerBiometricAndDevicePrompt() }
+            ).apply { topMargin = 16 }
+            setOnClickListener { launchBiometricPrompt() }
         }
 
-        card.addView(bioBtn)
-        rootFrame.addView(blurBackdrop)
-        rootFrame.addView(card)
-        setContentView(rootFrame)
+        root.addView(titleView)
+        root.addView(statusText)
+        root.addView(pinInput)
+        root.addView(unlockPinBtn)
+        root.addView(passInput)
+        root.addView(unlockPassBtn)
+        root.addView(patternView)
+        root.addView(modeRow)
+        root.addView(bioBtn)
+        setContentView(root)
 
-        if (storage.isFingerprintEnabled) {
-            triggerBiometricAndDevicePrompt()
+        showPinMode()
+        if (storage.isFingerprintEnabled && targetPackage != "DISABLE_ANTI_UNINSTALL") {
+            launchBiometricPrompt()
         }
     }
 
-    private fun shakeCard(card: View) {
-        card.animate().translationX(22f).setDuration(45).withEndAction {
-            card.animate().translationX(-22f).setDuration(45).withEndAction {
-                card.animate().translationX(0f).setDuration(45).start()
-            }.start()
-        }.start()
+    private fun showPinMode() {
+        pinInput.visibility = View.VISIBLE
+        passInput.visibility = View.GONE
+        patternView.visibility = View.GONE
+        pinInput.requestFocus()
+        val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
+        imm.showSoftInput(pinInput, InputMethodManager.SHOW_IMPLICIT)
     }
 
-    private fun triggerBiometricAndDevicePrompt() {
-        val biometricManager = BiometricManager.from(this)
-        val authenticators = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            BiometricManager.Authenticators.BIOMETRIC_STRONG or
-                BiometricManager.Authenticators.BIOMETRIC_WEAK or
-                BiometricManager.Authenticators.DEVICE_CREDENTIAL
+    private fun showPasswordMode() {
+        pinInput.visibility = View.GONE
+        passInput.visibility = View.VISIBLE
+        patternView.visibility = View.GONE
+        passInput.requestFocus()
+        val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
+        imm.showSoftInput(passInput, InputMethodManager.SHOW_IMPLICIT)
+    }
+
+    private fun showPatternMode() {
+        pinInput.visibility = View.GONE
+        passInput.visibility = View.GONE
+        patternView.visibility = View.VISIBLE
+        val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
+        imm.hideSoftInputFromWindow(patternView.windowToken, 0)
+    }
+
+    private fun verifyPin(pin: String) {
+        if (storage.verifyCredential(LockStorage.AuthType.PIN, pin)) {
+            onAuthSuccess()
         } else {
-            BiometricManager.Authenticators.BIOMETRIC_WEAK or
-                BiometricManager.Authenticators.DEVICE_CREDENTIAL
+            pinInput.text.clear()
+            statusText.text = "Incorrect PIN. Try again."
+            statusText.setTextColor(Color.parseColor("#F87171"))
         }
+    }
 
-        if (biometricManager.canAuthenticate(authenticators) != BiometricManager.BIOMETRIC_SUCCESS) return
+    private fun verifyPassword(password: String) {
+        if (storage.verifyCredential(LockStorage.AuthType.PASSWORD, password)) {
+            onAuthSuccess()
+        } else {
+            passInput.text.clear()
+            statusText.text = "Incorrect Password. Try again."
+            statusText.setTextColor(Color.parseColor("#F87171"))
+        }
+    }
+
+    private fun launchBiometricPrompt() {
+        val canAuth = BiometricManager.from(this)
+            .canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.DEVICE_CREDENTIAL)
+        if (canAuth != BiometricManager.BIOMETRIC_SUCCESS) return
 
         val executor = ContextCompat.getMainExecutor(this)
         val prompt = BiometricPrompt(this, executor, object : BiometricPrompt.AuthenticationCallback() {
             override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
-                super.onAuthenticationSucceeded(result)
-                onUnlocked()
+                onAuthSuccess()
             }
         })
 
-        val promptInfo = BiometricPrompt.PromptInfo.Builder()
-            .setTitle("Unlock ${getTargetAppLabel()}")
-            .setSubtitle("Use Face Unlock, Fingerprint, or Device PIN/Pattern")
-            .setAllowedAuthenticators(authenticators)
+        val info = BiometricPrompt.PromptInfo.Builder()
+            .setTitle("HS AppLock")
+            .setSubtitle("Authenticate to continue")
+            .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.DEVICE_CREDENTIAL)
             .build()
 
-        prompt.authenticate(promptInfo)
+        prompt.authenticate(info)
     }
 
-    private fun onUnlocked() {
-        if (targetPackage == "DISABLE_ANTI_UNINSTALL") {
+    private fun onAuthSuccess() {
+        val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
+        currentFocus?.windowToken?.let { imm.hideSoftInputFromWindow(it, 0) }
+
+        if (targetPackage == "SELF_APP_LOCK" || targetPackage == "DISABLE_ANTI_UNINSTALL") {
             setResult(RESULT_OK)
-        } else {
-            AppMonitorService.markAppUnlocked(targetPackage)
+            finish()
+            return
         }
-        finish()
-    }
 
-    private fun goHome() {
-        val homeIntent = Intent(Intent.ACTION_MAIN).apply {
-            addCategory(Intent.CATEGORY_HOME)
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+        if (targetPackage.isNotEmpty()) {
+            storage.markAppUnlocked(targetPackage)
         }
-        startActivity(homeIntent)
+        setResult(RESULT_OK)
         finish()
     }
 }
