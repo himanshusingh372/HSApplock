@@ -38,12 +38,11 @@ class LockActivity : FragmentActivity() {
         targetPackage = intent.getStringExtra("TARGET_PACKAGE") ?: ""
         val isFakeCrash = intent.getBooleanExtra("FAKE_CRASH", false)
 
-        // Centered outer container so the lock box sits in the middle of the screen
         val outerContainer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
             setBackgroundColor(Color.parseColor("#0F172A"))
-            setPadding(44, 44, 44, 44)
+            setPadding(36, 36, 36, 36)
         }
 
         val centerCard = LinearLayout(this).apply {
@@ -54,7 +53,7 @@ class LockActivity : FragmentActivity() {
                 cornerRadius = 28.0f
                 setStroke(2, Color.parseColor("#334155"))
             }
-            setPadding(40, 44, 40, 40)
+            setPadding(36, 40, 36, 36)
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
@@ -64,7 +63,7 @@ class LockActivity : FragmentActivity() {
         val titleView = TextView(this).apply {
             text = when (targetPackage) {
                 "SELF_APP_LOCK" -> "Unlock HS AppLock"
-                "DISABLE_ANTI_UNINSTALL" -> "Uninstall Protection"
+                "DISABLE_ANTI_UNINSTALL", "UNINSTALL_ALL" -> "Uninstall Protection"
                 "APP_INFO_ALL" -> "App Info Locked"
                 else -> "Authentication Required"
             }
@@ -80,7 +79,7 @@ class LockActivity : FragmentActivity() {
             textSize = 13.0f
             setTextColor(Color.parseColor("#94A3B8"))
             gravity = Gravity.CENTER
-            setPadding(0, 0, 0, 22)
+            setPadding(0, 0, 0, 20)
         }
 
         pinInput = EditText(this).apply {
@@ -155,15 +154,16 @@ class LockActivity : FragmentActivity() {
             setOnClickListener { verifyPassword(passInput.text.toString()) }
         }
 
-        // Single-hand sized 210dp pattern grid dead-center in the lock card
-        val patternSizePx = (resources.displayMetrics.density * 210).toInt()
+        // Large 300dp pattern grid centered in the lock card
+        val screenWidth = resources.displayMetrics.widthPixels
+        val patternSizePx = minOf((resources.displayMetrics.density * 300).toInt(), (screenWidth * 0.78).toInt())
         patternView = PatternLockView(this).apply {
-            compactMode = true
+            compactMode = false
             visibility = View.GONE
             layoutParams = LinearLayout.LayoutParams(patternSizePx, patternSizePx).apply {
                 gravity = Gravity.CENTER
-                topMargin = 8
-                bottomMargin = 8
+                topMargin = 10
+                bottomMargin = 10
             }
             onPatternComplete = { drawn ->
                 if (storage.verifyCredential(LockStorage.AuthType.PATTERN, drawn)) {
@@ -181,7 +181,7 @@ class LockActivity : FragmentActivity() {
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = 22 }
+            ).apply { topMargin = 20 }
         }
 
         fun makeModeBtn(label: String, onClick: () -> Unit): Button {
@@ -238,7 +238,10 @@ class LockActivity : FragmentActivity() {
             showFakeCrashDialog()
         } else {
             showPinMode()
-            if (storage.isFingerprintEnabled && targetPackage != "DISABLE_ANTI_UNINSTALL") {
+            if (storage.isFingerprintEnabled &&
+                targetPackage != "DISABLE_ANTI_UNINSTALL" &&
+                targetPackage != "UNINSTALL_ALL"
+            ) {
                 launchBiometricPrompt()
             }
         }
@@ -253,18 +256,28 @@ class LockActivity : FragmentActivity() {
             "App"
         }
 
-        AlertDialog.Builder(this)
+        val dialog = AlertDialog.Builder(this)
             .setTitle("$appLabel keeps stopping")
             .setMessage("App info or close app")
             .setCancelable(false)
             .setPositiveButton("Close app") { _, _ ->
                 goHomeAndFinish()
             }
-            .setNeutralButton("Unlock") { _, _ ->
-                showPinMode()
-                if (storage.isFingerprintEnabled) launchBiometricPrompt()
+            .setNeutralButton("App info") { _, _ ->
+                // Normal tap behaves like a standard crash dialog and closes the app
+                goHomeAndFinish()
             }
-            .show()
+            .create()
+
+        dialog.show()
+
+        // Secret trigger: Hold (long-press) "App info" button to reveal the unlock screen
+        dialog.getButton(AlertDialog.BUTTON_NEUTRAL)?.setOnLongClickListener {
+            dialog.dismiss()
+            showPinMode()
+            if (storage.isFingerprintEnabled) launchBiometricPrompt()
+            true
+        }
     }
 
     private fun goHomeAndFinish() {
@@ -359,7 +372,7 @@ class LockActivity : FragmentActivity() {
             return
         }
 
-        // Mark current foreground session unlocked; AppMonitorService clears it immediately upon Recents/Home/Exit
+        // Marks UNINSTALL_ALL / APP_INFO_ALL / SETTINGS_ALL / APP_* unlocked for this active foreground session
         if (targetPackage.isNotEmpty()) {
             storage.markAppUnlocked(targetPackage)
         }
