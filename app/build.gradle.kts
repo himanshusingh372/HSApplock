@@ -49,6 +49,20 @@ android {
     kotlinOptions {
         jvmTarget = "17"
     }
+
+
+applicationVariants.all {
+        val variant = this
+        variant.outputs
+            .map { it as com.android.build.gradle.internal.api.BaseVariantOutputImpl }
+            .forEach { output ->
+                val vName = variant.versionName ?: "1.0"
+                val vCode = variant.versionCode
+                output.outputFileName = "HSAppLock-v${vName}-vc${vCode}-${variant.name}.apk"
+            }
+    }
+
+
 }
 
 dependencies {
