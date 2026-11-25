@@ -8,8 +8,41 @@ class LockStorage(context: Context) {
 
     enum class AuthType { PIN, PASSWORD, PATTERN }
 
-  private val prefs: SharedPreferences =
+    private val prefs: SharedPreferences =
         context.getSharedPreferences("hs_applock_prefs", Context.MODE_PRIVATE)
+
+    init {
+        migrateLegacyPrefsIfNeeded(context)
+    }
+
+    private fun migrateLegacyPrefsIfNeeded(context: Context) {
+        if (prefs.getBoolean("migrated_v1_done", false)) return
+        val legacyNames = listOf("hs_applock_fallback_prefs", "hs_applock_secure_prefs")
+        val editor = prefs.edit()
+        for (name in legacyNames) {
+            try {
+                val oldPrefs = context.getSharedPreferences(name, Context.MODE_PRIVATE)
+                for ((key, value) in oldPrefs.all) {
+                    if (prefs.contains(key)) continue
+                    when (value) {
+                        is Boolean -> editor.putBoolean(key, value)
+                        is Int -> editor.putInt(key, value)
+                        is Long -> editor.putLong(key, value)
+                        is Float -> editor.putFloat(key, value)
+                        is String -> editor.putString(key, value)
+                        is Set<*> -> {
+                            @Suppress("UNCHECKED_CAST")
+                            editor.putStringSet(key, value as Set<String>)
+                        }
+                    }
+                }
+            } catch (_: Exception) {
+            }
+        }
+        editor.putBoolean("migrated_v1_done", true).apply()
+    }
+
+    // Unified Instant Lock (locks immediately on Recents, Home, App Switch, or Background Close)
     var isInstantLockEnabled: Boolean
         get() = prefs.getBoolean("instant_lock_enabled", true)
         set(value) = prefs.edit().putBoolean("instant_lock_enabled", value).apply()
@@ -37,10 +70,6 @@ class LockStorage(context: Context) {
     var isFingerprintEnabled: Boolean
         get() = prefs.getBoolean("fingerprint_enabled", true)
         set(value) = prefs.edit().putBoolean("fingerprint_enabled", value).apply()
-
-    var isLockOnExitEnabled: Boolean
-        get() = prefs.getBoolean("lock_on_exit_enabled", true)
-        set(value) = prefs.edit().putBoolean("lock_on_exit_enabled", value).apply()
 
     var isPatternHidden: Boolean
         get() = prefs.getBoolean("pattern_hidden", false)
@@ -95,7 +124,10 @@ class LockStorage(context: Context) {
     }
 
     fun clearAppUnlocked(key: String) {
-        prefs.edit().remove("unlocked_at_$key").remove("unlocked_at_APP_$key").apply()
+        prefs.edit()
+            .remove("unlocked_at_$key")
+            .remove("unlocked_at_APP_$key")
+            .apply()
     }
 
     fun clearAllUnlockedApps() {
@@ -105,9 +137,12 @@ class LockStorage(context: Context) {
     }
 
     fun isAppUnlocked(key: String): Boolean {
-        if (isInstantLockEnabled) return false
         val unlockedAt = prefs.getLong("unlocked_at_$key", 0L)
         if (unlockedAt == 0L) return false
+        if (isInstantLockEnabled) {
+            // Remains unlocked ONLY while active in foreground; cleared immediately upon leaving/recents
+            return true
+        }
         val timeoutSec = idleTimeoutSeconds
         if (timeoutSec <= 0) return true
         return (System.currentTimeMillis() - unlockedAt) < (timeoutSec * 1000L)
