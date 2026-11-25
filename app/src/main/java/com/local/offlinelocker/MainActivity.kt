@@ -826,11 +826,14 @@ class MainActivity : FragmentActivity() {
 
         val patternView = PatternLockView(this).apply {
             compactMode = true
-            layoutParams = LinearLayout.LayoutParams(
+layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-                Gravity.CENTER_HORIZONTAL
-            ).apply { topMargin = 12; bottomMargin = 12 }
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                gravity = Gravity.CENTER_HORIZONTAL
+                topMargin = 12
+                bottomMargin = 12
+            }
             onPatternComplete = { drawn ->
                 if (drawn.length < 4) {
                     showBanner("Connect at least 4 dots", "#B91C1C")
