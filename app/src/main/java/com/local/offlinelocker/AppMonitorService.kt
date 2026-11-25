@@ -42,7 +42,6 @@ class AppMonitorService : AccessibilityService() {
         val pkg = event.packageName?.toString() ?: return
         if (pkg.isEmpty() || pkg == packageName || pkg == "com.local.offlinelocker") return
 
-        // Avoid launching duplicate lock screens back-to-back within 1.2s for the same package
         val now = System.currentTimeMillis()
         if (pkg == lastPromptedPkg && (now - lastPromptTimeMs) < 1200L) return
 
@@ -55,19 +54,13 @@ class AppMonitorService : AccessibilityService() {
         lastPromptedPkg = pkg
         lastPromptTimeMs = now
 
-        if (isLockedApp && storage.getFakeCrashApps().contains(pkg)) {
-            val crashIntent = Intent(this, FakeCrashActivity::class.java).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-                putExtra("TARGET_PACKAGE", pkg)
-            }
-            startActivity(crashIntent)
-        } else {
-            val lockIntent = Intent(this, LockActivity::class.java).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-                putExtra("TARGET_PACKAGE", pkg)
-            }
-            startActivity(lockIntent)
+        val isFakeCrash = isLockedApp && storage.getFakeCrashApps().contains(pkg)
+        val lockIntent = Intent(this, LockActivity::class.java).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            putExtra("TARGET_PACKAGE", pkg)
+            putExtra("FAKE_CRASH", isFakeCrash)
         }
+        startActivity(lockIntent)
     }
 
     override fun onInterrupt() {
