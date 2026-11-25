@@ -54,6 +54,14 @@ class LockStorage(context: Context) {
         get() = prefs.getBoolean("master_paused", false)
         set(value) = prefs.edit().putBoolean("master_paused", value).apply()
 
+    var isSelfLockEnabled: Boolean
+        get() = prefs.getBoolean("self_lock_enabled", true)
+        set(value) = prefs.edit().putBoolean("self_lock_enabled", value).apply()
+
+    var isAppInfoLockEnabled: Boolean
+        get() = prefs.getBoolean("app_info_lock_enabled", false)
+        set(value) = prefs.edit().putBoolean("app_info_lock_enabled", value).apply()
+
     var isAntiUninstallEnabled: Boolean
         get() = prefs.getBoolean("anti_uninstall_enabled", false)
         set(value) = prefs.edit().putBoolean("anti_uninstall_enabled", value).apply()
