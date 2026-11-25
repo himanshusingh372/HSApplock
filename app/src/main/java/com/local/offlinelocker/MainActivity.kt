@@ -1,6 +1,7 @@
 package com.local.offlinelocker
 
 import android.accessibilityservice.AccessibilityServiceInfo
+import android.app.AlertDialog
 import android.app.admin.DevicePolicyManager
 import android.content.ComponentName
 import android.content.Context
@@ -19,7 +20,9 @@ import android.provider.Settings
 import android.text.Editable
 import android.text.InputType
 import android.text.TextWatcher
+import android.view.GestureDetector
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
@@ -28,12 +31,14 @@ import android.view.animation.OvershootInterpolator
 import android.widget.*
 import androidx.activity.OnBackPressedCallback
 import androidx.fragment.app.FragmentActivity
+import kotlin.math.abs
 
 class MainActivity : FragmentActivity() {
 
     private lateinit var storage: LockStorage
     private lateinit var dpm: DevicePolicyManager
     private lateinit var adminComponent: ComponentName
+    private lateinit var swipeDetector: GestureDetector
 
     private lateinit var topLockBtn: ImageButton
     private lateinit var tabSettingsText: TextView
@@ -58,10 +63,13 @@ class MainActivity : FragmentActivity() {
     private lateinit var bioSwitchRef: Switch
     private lateinit var masterPauseSwitchRef: Switch
     private lateinit var antiUninstallSwitchRef: Switch
+    private lateinit var selfLockSwitchRef: Switch
+    private lateinit var appInfoLockSwitchRef: Switch
 
     private enum class Page { SETTINGS, LOCKED_APP, NET_GUARDED, ALL_APPS }
     private var currentPage = Page.LOCKED_APP
     private var searchQuery = ""
+    private var isSelfUnlocked = false
 
     private var allLaunchableApps: List<AppEntry> = emptyList()
     private var displayedApps: List<AppEntry> = emptyList()
@@ -71,6 +79,7 @@ class MainActivity : FragmentActivity() {
         private const val REQ_VPN_PERMISSION = 101
         private const val REQ_DEVICE_ADMIN = 102
         private const val REQ_DISABLE_UNINSTALL_AUTH = 103
+        private const val REQ_SELF_LOCK_AUTH = 104
 
         private val COLOR_PRIMARY_BLUE = Color.parseColor("#0277BD")
         private val COLOR_DARK_BLUE = Color.parseColor("#01579B")
@@ -95,6 +104,52 @@ class MainActivity : FragmentActivity() {
         dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
         adminComponent = ComponentName(this, VaultDeviceAdminReceiver::class.java)
 
+        // Master Lock for HS AppLock itself
+        val hasAnyCredential = storage.hasCredential(LockStorage.AuthType.PIN) ||
+            storage.hasCredential(LockStorage.AuthType.PASSWORD) ||
+            storage.hasCredential(LockStorage.AuthType.PATTERN)
+        if (storage.isSelfLockEnabled && hasAnyCredential && !isSelfUnlocked) {
+            val authIntent = Intent(this, LockActivity::class.java).apply {
+                putExtra("TARGET_PACKAGE", "SELF_APP_LOCK")
+            }
+            startActivityForResult(authIntent, REQ_SELF_LOCK_AUTH)
+        } else {
+            isSelfUnlocked = true
+        }
+
+        // Swipe gesture to switch between SETTINGS <-> LOCKED APP <-> NET GUARDED
+        swipeDetector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
+            override fun onFling(
+                e1: MotionEvent?,
+                e2: MotionEvent,
+                velocityX: Float,
+                velocityY: Float
+            ): Boolean {
+                if (e1 == null || currentPage == Page.ALL_APPS) return false
+                val diffX = e2.x - e1.x
+                val diffY = e2.y - e1.y
+                if (abs(diffX) > abs(diffY) && abs(diffX) > 120 && abs(velocityX) > 120) {
+                    if (diffX < 0) {
+                        // Swipe Left -> Next Tab
+                        when (currentPage) {
+                            Page.SETTINGS -> switchToPage(Page.LOCKED_APP)
+                            Page.LOCKED_APP -> switchToPage(Page.NET_GUARDED)
+                            else -> {}
+                        }
+                    } else {
+                        // Swipe Right -> Previous Tab
+                        when (currentPage) {
+                            Page.NET_GUARDED -> switchToPage(Page.LOCKED_APP)
+                            Page.LOCKED_APP -> switchToPage(Page.SETTINGS)
+                            else -> {}
+                        }
+                    }
+                    return true
+                }
+                return false
+            }
+        })
+
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 if (currentPage == Page.ALL_APPS) {
@@ -118,6 +173,12 @@ class MainActivity : FragmentActivity() {
                 )
             }
             .sortedBy { it.name.lowercase() }
+
+        val appVersion = try {
+            packageManager.getPackageInfo(packageName, 0).versionName ?: "1.0"
+        } catch (_: Exception) {
+            "1.0"
+        }
 
         val rootFrame = FrameLayout(this).apply {
             setBackgroundColor(COLOR_BG_LIGHT)
@@ -151,14 +212,13 @@ class MainActivity : FragmentActivity() {
         }
 
         val appTitle = TextView(this).apply {
-            text = "HS AppLock"
-            textSize = 21.0f
+            text = "HS AppLock v$appVersion"
+            textSize = 20.0f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(Color.WHITE)
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f)
         }
 
-        // Top-Right Lock Icon = Anti-Uninstall Restriction Toggle (Requires Password to Disable)
         topLockBtn = ImageButton(this).apply {
             setImageResource(android.R.drawable.ic_lock_idle_lock)
             background = GradientDrawable().apply {
@@ -191,10 +251,10 @@ class MainActivity : FragmentActivity() {
             }
             val tv = TextView(this).apply {
                 text = label
-                textSize = 13.0f
+                textSize = 12.0f
                 typeface = Typeface.DEFAULT_BOLD
                 gravity = Gravity.CENTER
-                setPadding(8, 22, 8, 20)
+                setPadding(6, 22, 6, 20)
                 setTextColor(Color.WHITE)
             }
             val indicator = View(this).apply {
@@ -211,8 +271,8 @@ class MainActivity : FragmentActivity() {
         }
 
         val (tSet, iSet) = buildTab("SETTINGS", Page.SETTINGS)
-        val (tLock, iLock) = buildTab("LOCKED APP", Page.LOCKED_APP)
-        val (tNet, iNet) = buildTab("NET GUARDED", Page.NET_GUARDED)
+        val (tLock, iLock) = buildTab("LOCKED (0)", Page.LOCKED_APP)
+        val (tNet, iNet) = buildTab("NET GUARD (0)", Page.NET_GUARDED)
 
         tabSettingsText = tSet; tabSettingsIndicator = iSet
         tabLockedText = tLock; tabLockedIndicator = iLock
@@ -287,7 +347,7 @@ class MainActivity : FragmentActivity() {
             addTextChangedListener(object : TextWatcher {
                 override fun afterTextChanged(s: Editable?) {
                     searchQuery = s?.toString()?.trim()?.lowercase() ?: ""
-                    refreshAppList()
+                    refreshAppList(preserveScroll = false)
                 }
                 override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
                 override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
@@ -379,13 +439,20 @@ class MainActivity : FragmentActivity() {
         setContentView(rootFrame)
 
         syncTopLockIconUI()
+        updateTabCounts()
         switchToPage(Page.LOCKED_APP)
+    }
+
+    override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        swipeDetector.onTouchEvent(ev)
+        return super.dispatchTouchEvent(ev)
     }
 
     override fun onResume() {
         super.onResume()
         checkMandatoryPermissions()
         syncTopLockIconUI()
+        updateTabCounts()
         if (::antiUninstallSwitchRef.isInitialized) {
             antiUninstallSwitchRef.isChecked = isAntiUninstallActive()
         }
@@ -394,7 +461,14 @@ class MainActivity : FragmentActivity() {
         }
     }
 
-    // ================= ANTI-UNINSTALL RESTRICTION (TOP LOCK ICON) =================
+    private fun updateTabCounts() {
+        val lockedCount = storage.getLockedApps().size
+        val netCount = (storage.getWifiBlockedApps() + storage.getMobileBlockedApps()).size
+        tabLockedText.text = "LOCKED ($lockedCount)"
+        tabNetText.text = "NET GUARD ($netCount)"
+    }
+
+    // ================= ANTI-UNINSTALL RESTRICTION =================
     private fun isAntiUninstallActive(): Boolean {
         return storage.isAntiUninstallEnabled && dpm.isAdminActive(adminComponent)
     }
@@ -462,15 +536,19 @@ class MainActivity : FragmentActivity() {
                 Page.NET_GUARDED -> "Search network-guarded apps..."
                 else -> "Search locked apps..."
             }
-            refreshAppList()
+            refreshAppList(preserveScroll = false)
         }
     }
 
-    // ================= APP LIST RENDERING =================
-    private fun refreshAppList() {
+    // ================= APP LIST RENDERING (PRESERVES SCROLL POSITION) =================
+    private fun refreshAppList(preserveScroll: Boolean = true) {
+        val savedIndex = listView.firstVisiblePosition
+        val savedTop = listView.getChildAt(0)?.top ?: 0
+
         val lockedSet = storage.getLockedApps()
         val wifiSet = storage.getWifiBlockedApps()
         val cellSet = storage.getMobileBlockedApps()
+        updateTabCounts()
 
         displayedApps = allLaunchableApps.filter { app ->
             val matchesPage = when (currentPage) {
@@ -533,7 +611,7 @@ class MainActivity : FragmentActivity() {
                     layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f)
                 }
 
-                // 1. CRASH (Fake Crash Circle Badge)
+                // 1. CRASH
                 val crashBadge = makeActionPill(
                     label = "CRASH",
                     active = isFakeCrash,
@@ -553,10 +631,10 @@ class MainActivity : FragmentActivity() {
                         storage.setLockedApps(l)
                         showBanner("${app.name}: Fake Crash ON", "#E53935")
                     }
-                    refreshAppList()
+                    refreshAppList(preserveScroll = true)
                 }
 
-                // 2. WIFI (Wi-Fi Block Toggle)
+                // 2. WIFI
                 val wifiBadge = makeActionPill(
                     label = if (isWifiBlocked) "WIFI✕" else "WIFI",
                     active = isWifiBlocked,
@@ -576,10 +654,10 @@ class MainActivity : FragmentActivity() {
                         syncNetworkFirewall()
                         showBanner("${app.name}: Wi-Fi Blocked", "#F57C00")
                     }
-                    refreshAppList()
+                    refreshAppList(preserveScroll = true)
                 }
 
-                // 3. NET (Mobile Data Block Toggle)
+                // 3. NET
                 val netBadge = makeActionPill(
                     label = if (isCellBlocked) "NET✕" else "NET",
                     active = isCellBlocked,
@@ -599,7 +677,7 @@ class MainActivity : FragmentActivity() {
                         syncNetworkFirewall()
                         showBanner("${app.name}: Mobile Net Blocked", "#6D28D9")
                     }
-                    refreshAppList()
+                    refreshAppList(preserveScroll = true)
                 }
 
                 // 4. LOCK Toggle Icon
@@ -626,21 +704,33 @@ class MainActivity : FragmentActivity() {
                         showBanner("Enable Accessibility Service first!", "#B91C1C")
                         return@setOnClickListener
                     }
-                    val updated = storage.getLockedApps().toMutableSet()
-                    if (updated.contains(app.packageName)) {
-                        updated.remove(app.packageName)
-                        storage.setLockedApps(updated)
-                        showBanner("${app.name}: Unlocked", "#64748B")
-                    } else {
-                        updated.add(app.packageName)
-                        storage.setLockedApps(updated)
-                        showBanner("${app.name}: Locked", "#0277BD")
-                    }
-                    refreshAppList()
+                    val actionText = if (isLocked) "Remove lock from" else "Lock"
+                    AlertDialog.Builder(this@MainActivity)
+                        .setTitle(if (isLocked) "Unlock App?" else "Lock App?")
+                        .setMessage("$actionText ${app.name}?")
+                        .setPositiveButton("Yes") { _, _ ->
+                            val updated = storage.getLockedApps().toMutableSet()
+                            if (isLocked) {
+                                updated.remove(app.packageName)
+                                storage.setLockedApps(updated)
+                                showBanner("${app.name}: Unlocked", "#64748B")
+                            } else {
+                                updated.add(app.packageName)
+                                storage.setLockedApps(updated)
+                                showBanner("${app.name}: Locked", "#0277BD")
+                            }
+                            refreshAppList(preserveScroll = true)
+                        }
+                        .setNegativeButton("Cancel", null)
+                        .show()
                 }
 
                 return row
             }
+        }
+
+        if (preserveScroll) {
+            listView.setSelectionFromTop(savedIndex, savedTop)
         }
     }
 
@@ -677,14 +767,10 @@ class MainActivity : FragmentActivity() {
     // ================= DEDICATED SETTINGS PAGE =================
     private fun buildSettingsPage(): ScrollView {
         val scroll = ScrollView(this).apply {
-           layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply {
-                gravity = Gravity.CENTER_HORIZONTAL
-                topMargin = 12
-                bottomMargin = 12
-            }
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
         }
 
         val container = LinearLayout(this).apply {
@@ -721,8 +807,30 @@ class MainActivity : FragmentActivity() {
         val controlCard = makeCard()
         controlCard.addView(makeSectionTitle("PROTECTION & BIOMETRICS"))
 
+        selfLockSwitchRef = Switch(this).apply {
+            text = "Master Lock for HS AppLock Itself"
+            textSize = 14.0f
+            setTextColor(COLOR_TEXT_DARK)
+            isChecked = storage.isSelfLockEnabled
+            setOnCheckedChangeListener { _, checked ->
+                storage.isSelfLockEnabled = checked
+                showBanner(if (checked) "HS AppLock Master Lock: ON" else "HS AppLock Master Lock: OFF")
+            }
+        }
+
+        appInfoLockSwitchRef = Switch(this).apply {
+            text = "\nLock System App Info / Settings"
+            textSize = 14.0f
+            setTextColor(COLOR_TEXT_DARK)
+            isChecked = storage.isAppInfoLockEnabled
+            setOnCheckedChangeListener { _, checked ->
+                storage.isAppInfoLockEnabled = checked
+                showBanner(if (checked) "App Info Lock: ON" else "App Info Lock: OFF")
+            }
+        }
+
         masterPauseSwitchRef = Switch(this).apply {
-            text = "Temporarily Pause All App Locks"
+            text = "\nTemporarily Pause All App Locks"
             textSize = 14.0f
             setTextColor(COLOR_TEXT_DARK)
             isChecked = storage.isMasterPaused
@@ -762,6 +870,8 @@ class MainActivity : FragmentActivity() {
             }
         }
 
+        controlCard.addView(selfLockSwitchRef)
+        controlCard.addView(appInfoLockSwitchRef)
         controlCard.addView(masterPauseSwitchRef)
         controlCard.addView(antiUninstallSwitchRef)
         controlCard.addView(bioSwitchRef)
@@ -826,7 +936,7 @@ class MainActivity : FragmentActivity() {
 
         val patternView = PatternLockView(this).apply {
             compactMode = true
-layoutParams = LinearLayout.LayoutParams(
+            layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply {
@@ -883,8 +993,37 @@ layoutParams = LinearLayout.LayoutParams(
             "Idle Timeout: 5 minutes" to 300
         )
 
+        val idleAdapter = object : ArrayAdapter<String>(
+            this,
+            android.R.layout.simple_spinner_item,
+            idleOptions.map { it.first }
+        ) {
+            override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
+                val tv = super.getView(position, convertView, parent) as TextView
+                tv.setTextColor(COLOR_TEXT_DARK)
+                tv.typeface = Typeface.DEFAULT_BOLD
+                tv.textSize = 14.0f
+                tv.setPadding(24, 24, 24, 24)
+                return tv
+            }
+
+            override fun getDropDownView(position: Int, convertView: View?, parent: ViewGroup): View {
+                val tv = super.getDropDownView(position, convertView, parent) as TextView
+                tv.setTextColor(COLOR_TEXT_DARK)
+                tv.setBackgroundColor(Color.WHITE)
+                tv.textSize = 14.0f
+                tv.setPadding(28, 28, 28, 28)
+                return tv
+            }
+        }
+
         val idleSpinner = Spinner(this).apply {
-            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, idleOptions.map { it.first })
+            adapter = idleAdapter
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#F1F5F9"))
+                cornerRadius = 16.0f
+                setStroke(2, Color.parseColor("#94A3B8"))
+            }
             val idx = idleOptions.indexOfFirst { it.second == storage.idleTimeoutSeconds }
             if (idx >= 0) setSelection(idx)
             onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
@@ -992,7 +1131,13 @@ layoutParams = LinearLayout.LayoutParams(
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode == REQ_VPN_PERMISSION && resultCode == RESULT_OK) {
+        if (requestCode == REQ_SELF_LOCK_AUTH) {
+            if (resultCode == RESULT_OK) {
+                isSelfUnlocked = true
+            } else {
+                finish()
+            }
+        } else if (requestCode == REQ_VPN_PERMISSION && resultCode == RESULT_OK) {
             startForegroundService(Intent(this, AppFirewallVpnService::class.java).apply {
                 action = AppFirewallVpnService.ACTION_UPDATE
             })
