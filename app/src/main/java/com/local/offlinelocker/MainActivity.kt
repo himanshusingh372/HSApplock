@@ -515,9 +515,11 @@ class MainActivity : FragmentActivity() {
     }
 
     private fun switchToPage(page: Page) {
+        updateTabCounts()
         currentPage = page
         searchQuery = ""
         searchBox.text.clear()
+        
 
         tabSettingsIndicator.visibility = if (page == Page.SETTINGS) View.VISIBLE else View.INVISIBLE
         tabLockedIndicator.visibility = if (page == Page.LOCKED_APP) View.VISIBLE else View.INVISIBLE
@@ -889,17 +891,17 @@ class MainActivity : FragmentActivity() {
             }
         }
 
-        val lockExitSwitch = Switch(this).apply {
-            text = "\nLock Immediately on App Exit"
-            textSize = 14.0f
-            setTextColor(COLOR_TEXT_DARK)
-            isChecked = storage.isLockOnExitEnabled
-            setOnCheckedChangeListener { _, checked ->
-                storage.isLockOnExitEnabled = checked
-                showBanner(if (checked) "Lock on Exit: ON" else "Lock on Exit: OFF")
-            }
-        }
-
+     instantLockSwitchRef = Switch(this).apply {
+    text = "\nInstant Lock (On Recents, Exit, or Background Close)"
+    textSize = 14.0f
+    setTextColor(COLOR_TEXT_DARK)
+    isChecked = storage.isInstantLockEnabled
+    setOnCheckedChangeListener { _, checked ->
+        storage.isInstantLockEnabled = checked
+        if (checked) storage.clearAllUnlockedApps()
+        showBanner(if (checked) "Instant Lock: ON" else "Instant Lock: OFF")
+    }
+}
         controlCard.addView(selfLockSwitchRef)
         controlCard.addView(instantLockSwitchRef)
         controlCard.addView(settingsLockSwitchRef)
@@ -907,7 +909,7 @@ class MainActivity : FragmentActivity() {
         controlCard.addView(masterPauseSwitchRef)
         controlCard.addView(antiUninstallSwitchRef)
         controlCard.addView(bioSwitchRef)
-        controlCard.addView(lockExitSwitch)
+     
 
         val authCard = makeCard()
         authCard.addView(makeSectionTitle("AUTHENTICATION CREDENTIALS"))
