@@ -2,29 +2,14 @@ package com.local.offlinelocker
 
 import android.content.Context
 import android.content.SharedPreferences
-import androidx.security.crypto.EncryptedSharedPreferences
-import androidx.security.crypto.MasterKey
 import java.security.MessageDigest
 
 class LockStorage(context: Context) {
 
     enum class AuthType { PIN, PASSWORD, PATTERN }
 
-  private val prefs: SharedPreferences = try {
-        val masterKeyAlias = androidx.security.crypto.MasterKeys.getOrCreate(
-            androidx.security.crypto.MasterKeys.AES256_GCM_SPEC
-        )
-        EncryptedSharedPreferences.create(
-            "hs_applock_secure_prefs",
-            masterKeyAlias,
-            context,
-            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_GCM,
-            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-        )
-    } catch (_: Exception) {
-        context.getSharedPreferences("hs_applock_fallback_prefs", Context.MODE_PRIVATE)
-    }
-
+  private val prefs: SharedPreferences =
+        context.getSharedPreferences("hs_applock_prefs", Context.MODE_PRIVATE)
     var isInstantLockEnabled: Boolean
         get() = prefs.getBoolean("instant_lock_enabled", true)
         set(value) = prefs.edit().putBoolean("instant_lock_enabled", value).apply()
