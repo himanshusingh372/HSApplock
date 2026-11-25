@@ -39,6 +39,17 @@ class LockStorage(context: Context) {
         val saved = prefs.getString("hash_${type.name}", null) ?: return false
         return saved == sha256(input)
     }
+    fun markAppUnlocked(pkg: String) {
+        prefs.edit().putLong("unlocked_at_$pkg", System.currentTimeMillis()).apply()
+    }
+
+    fun isAppUnlocked(pkg: String): Boolean {
+        val unlockedAt = prefs.getLong("unlocked_at_$pkg", 0L)
+        if (unlockedAt == 0L) return false
+        val timeoutSec = idleTimeoutSeconds
+        if (timeoutSec <= 0) return true
+        return (System.currentTimeMillis() - unlockedAt) < (timeoutSec * 1000L)
+    }
 
     fun getDefaultAuthType(): AuthType {
         val saved = prefs.getString("default_auth_type", AuthType.PIN.name)!!
