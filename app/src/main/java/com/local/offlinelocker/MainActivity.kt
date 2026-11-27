@@ -1,5 +1,4 @@
 package com.local.offlinelocker
-
 import android.accessibilityservice.AccessibilityServiceInfo
 import android.app.AlertDialog
 import android.app.admin.DevicePolicyManager
@@ -62,8 +61,8 @@ class MainActivity : FragmentActivity() {
 
     private lateinit var selfLockSwitchRef: Switch
     private lateinit var instantLockSwitchRef: Switch
-    private lateinit var settingsLockSwitchRef: Switch
-    private lateinit var appInfoLockSwitchRef: Switch
+
+
     private lateinit var bioSwitchRef: Switch
     private lateinit var masterPauseSwitchRef: Switch
     private lateinit var antiUninstallSwitchRef: Switch
@@ -842,27 +841,7 @@ class MainActivity : FragmentActivity() {
             }
         }
 
-        settingsLockSwitchRef = Switch(this).apply {
-            text = "\nLock System Settings"
-            textSize = 14.0f
-            setTextColor(COLOR_TEXT_DARK)
-            isChecked = storage.isSettingsLockEnabled
-            setOnCheckedChangeListener { _, checked ->
-                storage.isSettingsLockEnabled = checked
-                showBanner(if (checked) "Settings Lock: ON" else "Settings Lock: OFF")
-            }
-        }
-
-        appInfoLockSwitchRef = Switch(this).apply {
-            text = "\nLock App Info Screens (All Apps)"
-            textSize = 14.0f
-            setTextColor(COLOR_TEXT_DARK)
-            isChecked = storage.isAppInfoLockEnabled
-            setOnCheckedChangeListener { _, checked ->
-                storage.isAppInfoLockEnabled = checked
-                showBanner(if (checked) "App Info Lock: ON" else "App Info Lock: OFF")
-            }
-        }
+     
 
         masterPauseSwitchRef = Switch(this).apply {
             text = "\nTemporarily Pause All App Locks"
@@ -900,8 +879,7 @@ class MainActivity : FragmentActivity() {
 
         controlCard.addView(selfLockSwitchRef)
         controlCard.addView(instantLockSwitchRef)
-        controlCard.addView(settingsLockSwitchRef)
-        controlCard.addView(appInfoLockSwitchRef)
+       
         controlCard.addView(masterPauseSwitchRef)
         controlCard.addView(antiUninstallSwitchRef)
         controlCard.addView(bioSwitchRef)
