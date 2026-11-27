@@ -31,27 +31,27 @@ class PatternLockView(context: Context) : View(context) {
         color = Color.parseColor("#10B981")
     }
 
-    private val dotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+  private val dotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#64748B")
         style = Paint.Style.FILL
-        color = Color.parseColor("#94A3B8")
     }
 
     private val activeDotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#1F242D")
         style = Paint.Style.FILL
-        color = Color.parseColor("#10B981")
+    }
+
+    private val ringPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#331F242D")
+        style = Paint.Style.FILL
     }
 
     private val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#1F242D")
+        strokeWidth = 10f
         style = Paint.Style.STROKE
-        strokeWidth = 12f
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
-        color = Color.parseColor("#10B981")
-    }
-
-    init {
-        isClickable = true
-        isFocusable = true
     }
 
     private fun getNodeCenter(index: Int): Pair<Float, Float> {
