@@ -42,7 +42,6 @@ class LockStorage(context: Context) {
         editor.putBoolean("migrated_v1_done", true).apply()
     }
 
-    // Unified Instant Lock (locks immediately on Recents, Home, App Switch, or Background Close)
     var isInstantLockEnabled: Boolean
         get() = prefs.getBoolean("instant_lock_enabled", true)
         set(value) = prefs.edit().putBoolean("instant_lock_enabled", value).apply()
@@ -108,8 +107,14 @@ class LockStorage(context: Context) {
     }
 
     fun setCredentialForType(type: AuthType, rawValue: String) {
-        prefs.edit().putString("cred_${type.name}", hash(rawValue)).apply()
+        val editor = prefs.edit().putString("cred_${type.name}", hash(rawValue))
+        if (type == AuthType.PIN) {
+            editor.putInt("pin_length", rawValue.length)
+        }
+        editor.apply()
     }
+
+    fun getPinLength(): Int = prefs.getInt("pin_length", 4).coerceIn(4, 12)
 
     fun hasCredential(type: AuthType): Boolean =
         !prefs.getString("cred_${type.name}", null).isNullOrEmpty()
@@ -139,10 +144,7 @@ class LockStorage(context: Context) {
     fun isAppUnlocked(key: String): Boolean {
         val unlockedAt = prefs.getLong("unlocked_at_$key", 0L)
         if (unlockedAt == 0L) return false
-        if (isInstantLockEnabled) {
-            // Remains unlocked ONLY while active in foreground; cleared immediately upon leaving/recents
-            return true
-        }
+        if (isInstantLockEnabled) return true
         val timeoutSec = idleTimeoutSeconds
         if (timeoutSec <= 0) return true
         return (System.currentTimeMillis() - unlockedAt) < (timeoutSec * 1000L)
