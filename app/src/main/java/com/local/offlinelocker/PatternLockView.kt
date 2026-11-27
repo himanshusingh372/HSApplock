@@ -20,7 +20,6 @@ class PatternLockView(context: Context) : View(context) {
     private var currentY = -1f
     private var isDrawing = false
 
-    // Matching the warm Pixel light keypad palette
     private val dotCirclePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.parseColor("#FAF8F5")
         style = Paint.Style.FILL
@@ -53,7 +52,7 @@ class PatternLockView(context: Context) : View(context) {
         val defaultPx = if (compactMode) {
             (resources.displayMetrics.density * 220).toInt()
         } else {
-            (resources.displayMetrics.density * 290).toInt()
+            (resources.displayMetrics.density * 310).toInt()
         }
         val w = resolveSize(defaultPx, widthMeasureSpec)
         val h = resolveSize(defaultPx, heightMeasureSpec)
@@ -77,7 +76,6 @@ class PatternLockView(context: Context) : View(context) {
         val outerRadius = cellSize * 0.28f
         val innerRadius = cellSize * 0.085f
 
-        // Draw connecting path ONLY when Hide Pattern is OFF
         if (!hidePattern && selectedNodes.isNotEmpty()) {
             val path = Path()
             val (startX, startY) = getNodeCenter(selectedNodes[0])
@@ -92,7 +90,6 @@ class PatternLockView(context: Context) : View(context) {
             canvas.drawPath(path, linePaint)
         }
 
-        // Draw 3x3 nodes styled like the circular keypad keys
         for (i in 0 until 9) {
             val (cx, cy) = getNodeCenter(i)
             val isSelected = !hidePattern && selectedNodes.contains(i)
