@@ -3,6 +3,7 @@ package com.local.offlinelocker
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.Typeface
+import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Bundle
@@ -46,7 +47,6 @@ class LockActivity : FragmentActivity() {
         private val COLOR_KEY_ACCENT = Color.parseColor("#F2B885")
         private val COLOR_TEXT_PRIMARY = Color.parseColor("#1F242D")
         private val COLOR_TEXT_SECONDARY = Color.parseColor("#5C6470")
-        private val COLOR_PILL_BG = Color.parseColor("#E3DFD7")
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -85,7 +85,7 @@ class LockActivity : FragmentActivity() {
 
         val rootFrame = FrameLayout(this).apply {
             setBackgroundColor(COLOR_BG_FROSTED)
-            setPadding(28, 36, 28, 28)
+            setPadding(24, 36, 24, 24)
         }
 
         fakeCrashContainer = buildFakeCrashView()
@@ -116,14 +116,33 @@ class LockActivity : FragmentActivity() {
         return super.dispatchTouchEvent(ev)
     }
 
-    private fun buildFakeCrashView(): LinearLayout {
+    private fun resolveTargetAppInfo(): Pair<String, Drawable> {
         val rawPkg = targetPackage.removePrefix("APP_")
-        val appLabel = try {
-            val info = packageManager.getApplicationInfo(rawPkg, 0)
-            packageManager.getApplicationLabel(info).toString()
-        } catch (_: Exception) {
-            "App"
+        if (rawPkg.isEmpty() || rawPkg == "SELF_APP_LOCK") {
+            val selfIcon = try {
+                packageManager.getApplicationIcon(packageName)
+            } catch (_: Exception) {
+                ContextCompat.getDrawable(this, android.R.drawable.ic_lock_idle_lock)!!
+            }
+            return Pair("HS AppLock", selfIcon)
         }
+        return try {
+            val info = packageManager.getApplicationInfo(rawPkg, 0)
+            val label = packageManager.getApplicationLabel(info).toString()
+            val icon = packageManager.getApplicationIcon(info)
+            Pair(label, icon)
+        } catch (_: Exception) {
+            val fallbackIcon = try {
+                packageManager.getApplicationIcon(packageName)
+            } catch (_: Exception) {
+                ContextCompat.getDrawable(this, android.R.drawable.ic_lock_idle_lock)!!
+            }
+            Pair("HS AppLock", fallbackIcon)
+        }
+    }
+
+    private fun buildFakeCrashView(): LinearLayout {
+        val (appLabel, _) = resolveTargetAppInfo()
 
         val wrapper = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -240,6 +259,9 @@ class LockActivity : FragmentActivity() {
     }
 
     private fun buildAuthView(): LinearLayout {
+        val (appLabel, appDrawable) = resolveTargetAppInfo()
+        val density = resources.displayMetrics.density
+
         val container = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
@@ -249,23 +271,41 @@ class LockActivity : FragmentActivity() {
             )
         }
 
-        // Larger top spacer pushes the keypad/pattern lower for comfortable single-hand reach
+        // Pushes logo + keypad lower into the comfortable thumb zone
         val topSpacer = View(this).apply {
             layoutParams = LinearLayout.LayoutParams(1, 0, 1.35f)
         }
 
-        titleView = TextView(this).apply {
-            text = "Enter PIN"
+        val iconSizePx = (density * 56).toInt()
+        val appLogoView = ImageView(this).apply {
+            setImageDrawable(appDrawable)
+            layoutParams = LinearLayout.LayoutParams(iconSizePx, iconSizePx).apply {
+                gravity = Gravity.CENTER_HORIZONTAL
+                bottomMargin = (density * 10).toInt()
+            }
+        }
+
+        val appNameView = TextView(this).apply {
+            text = appLabel
             textSize = 21.0f
-            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            typeface = Typeface.DEFAULT_BOLD
             setTextColor(COLOR_TEXT_PRIMARY)
             gravity = Gravity.CENTER
-            setPadding(0, 0, 0, 4)
+            setPadding(0, 0, 0, 2)
+        }
+
+        titleView = TextView(this).apply {
+            text = "Enter PIN"
+            textSize = 14.0f
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            setTextColor(COLOR_TEXT_SECONDARY)
+            gravity = Gravity.CENTER
+            setPadding(0, 0, 0, 2)
         }
 
         subtitleView = TextView(this).apply {
             text = "Swipe left/right for Pattern"
-            textSize = 12.0f
+            textSize = 11.5f
             setTextColor(COLOR_TEXT_SECONDARY)
             gravity = Gravity.CENTER
             setPadding(0, 0, 0, 18)
@@ -277,15 +317,14 @@ class LockActivity : FragmentActivity() {
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { bottomMargin = 22 }
+            ).apply { bottomMargin = 24 }
         }
         rebuildPinDots(storage.getPinLength())
 
-        // Right-hand friendly ergonomic keypad (70dp keys, shifted slightly right for right-thumb reach)
+        // Full-Width Expanded Keypad
         pinKeypadContainer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            gravity = Gravity.END
-            setPadding(0, 0, (resources.displayMetrics.density * 14).toInt(), 0)
+            gravity = Gravity.CENTER
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
@@ -299,24 +338,30 @@ class LockActivity : FragmentActivity() {
             listOf("⌫", "0", "→")
         )
 
-        val btnSizePx = (resources.displayMetrics.density * 70).toInt()
-        val btnMarginPx = (resources.displayMetrics.density * 9).toInt()
+        val screenWidth = resources.displayMetrics.widthPixels
+        val btnSizePx = minOf((density * 78).toInt(), (screenWidth * 0.24).toInt())
 
         for (rowDigits in rows) {
             val rowLayout = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.END
+                gravity = Gravity.CENTER
                 layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.MATCH_PARENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply { bottomMargin = (btnMarginPx * 1.4).toInt() }
+                ).apply { bottomMargin = (density * 14).toInt() }
             }
 
             for (digit in rowDigits) {
+                val cellWrapper = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    gravity = Gravity.CENTER
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f)
+                }
+
                 val isActionKey = digit == "⌫" || digit == "→"
                 val keyBtn = TextView(this).apply {
                     text = digit
-                    textSize = if (isActionKey) 20.0f else 25.0f
+                    textSize = if (isActionKey) 22.0f else 28.0f
                     typeface = Typeface.create("sans-serif", Typeface.NORMAL)
                     gravity = Gravity.CENTER
                     setTextColor(COLOR_TEXT_PRIMARY)
@@ -324,27 +369,23 @@ class LockActivity : FragmentActivity() {
                         shape = GradientDrawable.OVAL
                         setColor(if (isActionKey) COLOR_KEY_ACCENT else COLOR_KEY_CIRCLE)
                     }
-                    layoutParams = LinearLayout.LayoutParams(btnSizePx, btnSizePx).apply {
-                        leftMargin = btnMarginPx
-                        rightMargin = btnMarginPx
-                    }
+                    layoutParams = LinearLayout.LayoutParams(btnSizePx, btnSizePx)
                     setOnClickListener { onKeypadPress(digit) }
                 }
-                rowLayout.addView(keyBtn)
+                cellWrapper.addView(keyBtn)
+                rowLayout.addView(cellWrapper)
             }
             pinKeypadContainer.addView(rowLayout)
         }
 
-        // Right-hand reachable Pattern Grid
-        val screenWidth = resources.displayMetrics.widthPixels
-        val patternSizePx = minOf((resources.displayMetrics.density * 295).toInt(), (screenWidth * 0.80).toInt())
+        // Large Full-Width Pattern Grid matching the keypad palette
+        val patternSizePx = minOf((density * 310).toInt(), (screenWidth * 0.84).toInt())
         patternView = PatternLockView(this).apply {
             compactMode = false
             visibility = View.GONE
             layoutParams = LinearLayout.LayoutParams(patternSizePx, patternSizePx).apply {
-                gravity = Gravity.END
-                rightMargin = (resources.displayMetrics.density * 10).toInt()
-                topMargin = 8
+                gravity = Gravity.CENTER
+                topMargin = 6
                 bottomMargin = 12
             }
             onPatternComplete = { drawn ->
@@ -358,36 +399,54 @@ class LockActivity : FragmentActivity() {
         }
 
         val bottomSpacer = View(this).apply {
-            layoutParams = LinearLayout.LayoutParams(1, 0, 0.35f)
+            layoutParams = LinearLayout.LayoutParams(1, 0, 0.25f)
         }
 
-        // Bottom Bar: "Use Fingerprint" on bottom-left (just like Pixel "Use PIN"), mode switch on bottom-right
+        // Slightly raised bottom pill bar: borderless #FAF8F5 shade with bold text only
         val bottomPillRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(12, 0, 12, 12)
+            setPadding(16, 0, 16, (density * 26).toInt())
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             )
         }
 
-        val bioPill = TextView(this).apply {
-            text = "Use Fingerprint"
-            textSize = 13.5f
-            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-            setTextColor(COLOR_TEXT_PRIMARY)
-            gravity = Gravity.CENTER
-            setPadding(34, 16, 34, 16)
+        val bioPill = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(32, 16, 36, 16)
             background = GradientDrawable().apply {
-                setColor(COLOR_PILL_BG)
+                setColor(COLOR_KEY_CIRCLE)
                 cornerRadius = 50.0f
             }
-            visibility = if (storage.isFingerprintEnabled &&
-                targetPackage != "DISABLE_ANTI_UNINSTALL"
-            ) View.VISIBLE else View.GONE
+            visibility = if (storage.isFingerprintEnabled) View.VISIBLE else View.GONE
             setOnClickListener { launchBiometricPrompt() }
         }
+
+        val bioIcon = ImageView(this).apply {
+            setImageResource(android.R.drawable.ic_dialog_info)
+            setColorFilter(COLOR_TEXT_PRIMARY)
+            layoutParams = LinearLayout.LayoutParams((density * 18).toInt(), (density * 18).toInt()).apply {
+                rightMargin = (density * 8).toInt()
+            }
+        }
+        // Use fingerprint resource if available on device
+        val fpResId = resources.getIdentifier("ic_fingerprint", "drawable", "android")
+        if (fpResId != 0) {
+            bioIcon.setImageResource(fpResId)
+        }
+
+        val bioText = TextView(this).apply {
+            text = "Use Fingerprint"
+            textSize = 13.5f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(COLOR_TEXT_PRIMARY)
+        }
+
+        bioPill.addView(bioIcon)
+        bioPill.addView(bioText)
 
         val pillSpacer = View(this).apply {
             layoutParams = LinearLayout.LayoutParams(0, 1, 1.0f)
@@ -396,12 +455,12 @@ class LockActivity : FragmentActivity() {
         modeSwitchPill = TextView(this).apply {
             text = "Pattern"
             textSize = 13.5f
-            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            typeface = Typeface.DEFAULT_BOLD
             setTextColor(COLOR_TEXT_PRIMARY)
             gravity = Gravity.CENTER
-            setPadding(34, 16, 34, 16)
+            setPadding(38, 16, 38, 16)
             background = GradientDrawable().apply {
-                setColor(COLOR_PILL_BG)
+                setColor(COLOR_KEY_CIRCLE)
                 cornerRadius = 50.0f
             }
             setOnClickListener {
@@ -414,6 +473,8 @@ class LockActivity : FragmentActivity() {
         bottomPillRow.addView(modeSwitchPill)
 
         container.addView(topSpacer)
+        container.addView(appLogoView)
+        container.addView(appNameView)
         container.addView(titleView)
         container.addView(subtitleView)
         container.addView(pinDotsRow)
@@ -427,7 +488,7 @@ class LockActivity : FragmentActivity() {
     private fun rebuildPinDots(totalDots: Int) {
         pinDotsRow.removeAllViews()
         dotViews.clear()
-        val dotSize = (resources.displayMetrics.density * 10).toInt()
+        val dotSize = (resources.displayMetrics.density * 11).toInt()
         val dotMargin = (resources.displayMetrics.density * 8).toInt()
         for (i in 0 until totalDots) {
             val dot = View(this).apply {
@@ -564,7 +625,7 @@ class LockActivity : FragmentActivity() {
     }
 
     private fun onAuthSuccess() {
-        if (targetPackage == "SELF_APP_LOCK" || targetPackage == "DISABLE_ANTI_UNINSTALL") {
+        if (targetPackage == "SELF_APP_LOCK") {
             setResult(RESULT_OK)
             finish()
             return
