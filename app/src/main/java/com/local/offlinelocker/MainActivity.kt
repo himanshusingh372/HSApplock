@@ -455,7 +455,7 @@ class MainActivity : FragmentActivity() {
 
     private fun enforceMasterLockIfNeeded() {
         val hasAnyCredential = storage.hasCredential(LockStorage.AuthType.PIN) ||
-            storage.hasCredential(LockStorage.AuthType.PASSWORD) ||
+            
             storage.hasCredential(LockStorage.AuthType.PATTERN)
 
         if (storage.isSelfLockEnabled && hasAnyCredential && !isSelfUnlocked && !isPromptingSelfLock) {
@@ -930,31 +930,8 @@ class MainActivity : FragmentActivity() {
             }
         }
 
-        val passInput = EditText(this).apply {
-            hint = "Set Password (${if (storage.hasCredential(LockStorage.AuthType.PASSWORD)) "ACTIVE" else "Not Set"})"
-            setTextColor(COLOR_TEXT_DARK)
-            setHintTextColor(COLOR_TEXT_MUTED)
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = 20 }
-        }
-        val savePassBtn = Button(this).apply {
-            text = "Save Password"
-            setTextColor(Color.WHITE)
-            background = GradientDrawable().apply { setColor(COLOR_PRIMARY_BLUE); cornerRadius = 18.0f }
-            setOnClickListener {
-                val v = passInput.text.toString()
-                if (v.length >= 4) {
-                    storage.setCredentialForType(LockStorage.AuthType.PASSWORD, v)
-                    passInput.text.clear()
-                    passInput.hint = "Set Password (ACTIVE)"
-                    showBanner("Password Saved!")
-                } else showBanner("Enter at least 4 characters", "#B91C1C")
-            }
-        }
-
+       
+     
         var firstPattern: String? = null
         val patternPrompt = TextView(this).apply {
             text = "\nDraw 3x3 Pattern (${if (storage.hasCredential(LockStorage.AuthType.PATTERN)) "ACTIVE" else "Not Set"}):"
