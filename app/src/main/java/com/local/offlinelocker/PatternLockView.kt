@@ -4,173 +4,147 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.Path
 import android.view.MotionEvent
 import android.view.View
 import kotlin.math.hypot
 
 class PatternLockView(context: Context) : View(context) {
 
-    var onPatternComplete: ((String) -> Unit)? = null
-    var hidePattern: Boolean = false
     var compactMode: Boolean = false
+    var onPatternComplete: ((String) -> Unit)? = null
 
+    private val storage = LockStorage(context)
     private val selectedNodes = mutableListOf<Int>()
-    private var currentTouchX = -1f
-    private var currentTouchY = -1f
+    private var currentX = -1f
+    private var currentY = -1f
     private var isDrawing = false
 
-    private val outerRingPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE
-        strokeWidth = 6f
-        color = Color.parseColor("#334155")
+    // Matching the warm Pixel light keypad palette
+    private val dotCirclePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#FAF8F5")
+        style = Paint.Style.FILL
+    }
+
+    private val dotCenterPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#5C6470")
+        style = Paint.Style.FILL
     }
 
     private val activeRingPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE
-        strokeWidth = 8f
-        color = Color.parseColor("#10B981")
-    }
-
-  private val dotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#64748B")
+        color = Color.parseColor("#F2B885")
         style = Paint.Style.FILL
     }
 
-    private val activeDotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+    private val activeCenterPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.parseColor("#1F242D")
-        style = Paint.Style.FILL
-    }
-
-    private val ringPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#331F242D")
         style = Paint.Style.FILL
     }
 
     private val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.parseColor("#1F242D")
-        strokeWidth = 10f
+        strokeWidth = 9f
         style = Paint.Style.STROKE
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
     }
 
-    private fun getNodeCenter(index: Int): Pair<Float, Float> {
-        val col = index % 3
-        val row = index / 3
-        val cellW = width / 3f
-        val cellH = height / 3f
-        return Pair(cellW * col + cellW / 2f, cellH * row + cellH / 2f)
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        val defaultPx = if (compactMode) {
+            (resources.displayMetrics.density * 220).toInt()
+        } else {
+            (resources.displayMetrics.density * 290).toInt()
+        }
+        val w = resolveSize(defaultPx, widthMeasureSpec)
+        val h = resolveSize(defaultPx, heightMeasureSpec)
+        val size = minOf(w, h)
+        setMeasuredDimension(size, size)
     }
 
-    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-        val screenWidth = resources.displayMetrics.widthPixels
-        val ratio = if (compactMode) 0.46f else 0.74f
-        val targetSize = (screenWidth * ratio).toInt()
-        val widthMode = MeasureSpec.getMode(widthMeasureSpec)
-        val widthSize = MeasureSpec.getSize(widthMeasureSpec)
-        val finalSize = when (widthMode) {
-            MeasureSpec.EXACTLY -> widthSize
-            MeasureSpec.AT_MOST -> targetSize.coerceAtMost(widthSize)
-            else -> targetSize
-        }
-        setMeasuredDimension(finalSize, finalSize)
+    private fun getNodeCenter(index: Int): Pair<Float, Float> {
+        val row = index / 3
+        val col = index % 3
+        val cellSize = width / 3f
+        return Pair(cellSize * col + cellSize / 2f, cellSize * row + cellSize / 2f)
     }
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        if (width <= 0 || height <= 0) return
+        if (width == 0 || height == 0) return
 
-        if (!hidePattern) {
-            for (i in 0 until selectedNodes.size - 1) {
-                val (x1, y1) = getNodeCenter(selectedNodes[i])
-                val (x2, y2) = getNodeCenter(selectedNodes[i + 1])
-                canvas.drawLine(x1, y1, x2, y2, linePaint)
-            }
+        val hidePattern = storage.isPatternHidden
+        val cellSize = width / 3f
+        val outerRadius = cellSize * 0.28f
+        val innerRadius = cellSize * 0.085f
 
-            if (isDrawing && selectedNodes.isNotEmpty() && currentTouchX >= 0f) {
-                val (lastX, lastY) = getNodeCenter(selectedNodes.last())
-                canvas.drawLine(lastX, lastY, currentTouchX, currentTouchY, linePaint)
+        // Draw connecting path ONLY when Hide Pattern is OFF
+        if (!hidePattern && selectedNodes.isNotEmpty()) {
+            val path = Path()
+            val (startX, startY) = getNodeCenter(selectedNodes[0])
+            path.moveTo(startX, startY)
+            for (i in 1 until selectedNodes.size) {
+                val (nx, ny) = getNodeCenter(selectedNodes[i])
+                path.lineTo(nx, ny)
             }
+            if (isDrawing && currentX >= 0f && currentY >= 0f) {
+                path.lineTo(currentX, currentY)
+            }
+            canvas.drawPath(path, linePaint)
         }
 
-        val ringRadius = if (compactMode) 32f else 48f
-        val activeDotRadius = if (compactMode) 14f else 20f
-        val idleDotRadius = if (compactMode) 10f else 14f
-
+        // Draw 3x3 nodes styled like the circular keypad keys
         for (i in 0 until 9) {
             val (cx, cy) = getNodeCenter(i)
-            val showActive = !hidePattern && selectedNodes.contains(i)
-            canvas.drawCircle(cx, cy, ringRadius, if (showActive) activeRingPaint else outerRingPaint)
-            canvas.drawCircle(cx, cy, if (showActive) activeDotRadius else idleDotRadius, if (showActive) activeDotPaint else dotPaint)
+            val isSelected = !hidePattern && selectedNodes.contains(i)
+            canvas.drawCircle(cx, cy, outerRadius, if (isSelected) activeRingPaint else dotCirclePaint)
+            canvas.drawCircle(cx, cy, innerRadius, if (isSelected) activeCenterPaint else dotCenterPaint)
         }
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        when (event.actionMasked) {
+        when (event.action) {
             MotionEvent.ACTION_DOWN -> {
                 parent?.requestDisallowInterceptTouchEvent(true)
                 selectedNodes.clear()
                 isDrawing = true
-                currentTouchX = event.x
-                currentTouchY = event.y
+                currentX = event.x
+                currentY = event.y
                 checkHit(event.x, event.y)
                 invalidate()
                 return true
             }
             MotionEvent.ACTION_MOVE -> {
-                parent?.requestDisallowInterceptTouchEvent(true)
-                currentTouchX = event.x
-                currentTouchY = event.y
+                currentX = event.x
+                currentY = event.y
                 checkHit(event.x, event.y)
                 invalidate()
                 return true
             }
-            MotionEvent.ACTION_UP -> {
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 parent?.requestDisallowInterceptTouchEvent(false)
                 isDrawing = false
                 if (selectedNodes.isNotEmpty()) {
-                    val code = selectedNodes.joinToString("") { (it + 1).toString() }
-                    onPatternComplete?.invoke(code)
+                    val result = selectedNodes.joinToString("") { (it + 1).toString() }
+                    onPatternComplete?.invoke(result)
                 }
                 selectedNodes.clear()
-                invalidate()
-                return true
-            }
-            MotionEvent.ACTION_CANCEL -> {
-                parent?.requestDisallowInterceptTouchEvent(false)
-                isDrawing = false
-                selectedNodes.clear()
+                currentX = -1f
+                currentY = -1f
                 invalidate()
                 return true
             }
         }
-        return true
+        return super.onTouchEvent(event)
     }
 
     private fun checkHit(x: Float, y: Float) {
-        val hitRadius = (width / 3f) * 0.42f
+        val hitRadius = (width / 3f) * 0.34f
         for (i in 0 until 9) {
             if (selectedNodes.contains(i)) continue
             val (cx, cy) = getNodeCenter(i)
             if (hypot(x - cx, y - cy) <= hitRadius) {
-                if (selectedNodes.isNotEmpty()) {
-                    val prev = selectedNodes.last()
-                    val mid = getMiddleNode(prev, i)
-                    if (mid != -1 && !selectedNodes.contains(mid)) {
-                        selectedNodes.add(mid)
-                    }
-                }
                 selectedNodes.add(i)
-                performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY)
             }
         }
-    }
-
-    private fun getMiddleNode(a: Int, b: Int): Int {
-        val r1 = a / 3; val c1 = a % 3
-        val r2 = b / 3; val c2 = b % 3
-        return if ((r1 + r2) % 2 == 0 && (c1 + c2) % 2 == 0) {
-            ((r1 + r2) / 2) * 3 + ((c1 + c2) / 2)
-        } else -1
     }
 }
