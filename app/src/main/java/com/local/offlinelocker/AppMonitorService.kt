@@ -30,6 +30,24 @@ class AppMonitorService : AccessibilityService() {
     }
 
     companion object {
+        private val SETTINGS_PACKAGES = setOf(
+            "com.android.settings",
+            "com.miui.securitycenter",
+            "com.coloros.securityguard",
+            "com.vivo.permissionmanager",
+            "com.samsung.android.settings",
+            "com.oneplus.security"
+        )
+
+        private val INSTALLER_PACKAGES = setOf(
+            "com.google.android.packageinstaller",
+            "com.android.packageinstaller",
+            "com.miui.packageinstaller",
+            "com.samsung.android.packageinstaller",
+            "com.coloros.packageinstaller",
+            "com.oplus.apprecover"
+        )
+
         private val TRANSIENT_OVERLAY_PACKAGES = setOf(
             "android",
             "com.android.intentresolver",
@@ -95,7 +113,7 @@ class AppMonitorService : AccessibilityService() {
 
         val className = event.className?.toString().orEmpty()
 
-        // Clear all active unlock sessions immediately when Recents / Overview opens
+        // Clear all active sessions immediately when Recents / Overview opens
         val isRecentsScreen = pkg == "com.android.systemui" &&
             (className.contains("Recents", ignoreCase = true) ||
                 className.contains("Overview", ignoreCase = true) ||
@@ -109,23 +127,38 @@ class AppMonitorService : AccessibilityService() {
 
         if (pkg == "com.android.systemui") return
 
-        // Pressing Home (Launcher) or switching to ANY other app immediately clears the previous app's unlock
         val prev = activeForegroundPkg
         if (prev != null && prev != pkg) {
             if (storage.isInstantLockEnabled) {
-                storage.clearAppUnlocked(prev)
-                exitCooldownByPkg[prev] = System.currentTimeMillis()
+                val prevIsSettingsOrInstaller = SETTINGS_PACKAGES.contains(prev) || INSTALLER_PACKAGES.contains(prev)
+                val currIsSettingsOrInstaller = SETTINGS_PACKAGES.contains(pkg) || INSTALLER_PACKAGES.contains(pkg)
+
+                if (prevIsSettingsOrInstaller && currIsSettingsOrInstaller) {
+                    // Keep Settings/App Info unlocked across Uninstall -> Cancel dialog transitions
+                } else {
+                    storage.clearAppUnlocked(prev)
+                    exitCooldownByPkg[prev] = System.currentTimeMillis()
+                    if (prevIsSettingsOrInstaller) {
+                        SETTINGS_PACKAGES.forEach {
+                            storage.clearAppUnlocked(it)
+                            exitCooldownByPkg[it] = System.currentTimeMillis()
+                        }
+                        INSTALLER_PACKAGES.forEach {
+                            storage.clearAppUnlocked(it)
+                            exitCooldownByPkg[it] = System.currentTimeMillis()
+                        }
+                    }
+                }
             }
         }
         activeForegroundPkg = pkg
 
-        // Unified Locked Apps check (handles normal apps, System Settings, and Package Installer once per session)
         val lockedApps = storage.getLockedApps()
         if (lockedApps.contains(pkg)) {
+            // Suppress trailing window-content events right after pressing Back/Home out of an app
             val exitedAt = exitCooldownByPkg[pkg] ?: 0L
-            // Only suppress duplicate prompt for 600ms right after leaving the app so reopening immediately locks
-            if (eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED &&
-                System.currentTimeMillis() - exitedAt < 600L
+            if (eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED &&
+                System.currentTimeMillis() - exitedAt < 1000L
             ) {
                 return
             }
