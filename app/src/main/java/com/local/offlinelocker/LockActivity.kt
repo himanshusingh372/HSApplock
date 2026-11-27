@@ -8,6 +8,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.view.GestureDetector
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -17,10 +18,12 @@ import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
+import kotlin.math.abs
 
 class LockActivity : FragmentActivity() {
 
     private lateinit var storage: LockStorage
+    private lateinit var swipeDetector: GestureDetector
     private var targetPackage: String = ""
 
     private lateinit var fakeCrashContainer: LinearLayout
@@ -38,7 +41,6 @@ class LockActivity : FragmentActivity() {
     private var isPatternMode = false
 
     companion object {
-        // Material You / Pixel Light Lock Palette
         private val COLOR_BG_FROSTED = Color.parseColor("#EFECE6")
         private val COLOR_KEY_CIRCLE = Color.parseColor("#FAF8F5")
         private val COLOR_KEY_ACCENT = Color.parseColor("#F2B885")
@@ -63,9 +65,28 @@ class LockActivity : FragmentActivity() {
         targetPackage = intent.getStringExtra("TARGET_PACKAGE") ?: ""
         val isFakeCrash = intent.getBooleanExtra("FAKE_CRASH", false)
 
+        // Left / Right swipe switches between PIN Keypad and Pattern
+        swipeDetector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
+            override fun onFling(
+                e1: MotionEvent?,
+                e2: MotionEvent,
+                velocityX: Float,
+                velocityY: Float
+            ): Boolean {
+                if (e1 == null || authContainer.visibility != View.VISIBLE) return false
+                val diffX = e2.x - e1.x
+                val diffY = e2.y - e1.y
+                if (abs(diffX) > abs(diffY) && abs(diffX) > 130 && abs(velocityX) > 130) {
+                    if (isPatternMode) showPinMode() else showPatternMode()
+                    return true
+                }
+                return false
+            }
+        })
+
         val rootFrame = FrameLayout(this).apply {
             setBackgroundColor(COLOR_BG_FROSTED)
-            setPadding(36, 48, 36, 36)
+            setPadding(32, 36, 32, 28)
         }
 
         fakeCrashContainer = buildFakeCrashView()
@@ -89,6 +110,11 @@ class LockActivity : FragmentActivity() {
             authContainer.visibility = View.VISIBLE
             if (defaultToPattern) showPatternMode() else showPinMode()
         }
+    }
+
+    override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        swipeDetector.onTouchEvent(ev)
+        return super.dispatchTouchEvent(ev)
     }
 
     private fun buildFakeCrashView(): LinearLayout {
@@ -225,43 +251,38 @@ class LockActivity : FragmentActivity() {
         }
 
         val topSpacer = View(this).apply {
-            layoutParams = LinearLayout.LayoutParams(1, 0, 0.7f)
+            layoutParams = LinearLayout.LayoutParams(1, 0, 0.55f)
         }
 
         titleView = TextView(this).apply {
             text = "Enter PIN"
-            textSize = 22.0f
+            textSize = 20.0f
             typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
             setTextColor(COLOR_TEXT_PRIMARY)
             gravity = Gravity.CENTER
-            setPadding(0, 0, 0, 6)
+            setPadding(0, 0, 0, 4)
         }
 
         subtitleView = TextView(this).apply {
-            text = when (targetPackage) {
-                "SELF_APP_LOCK" -> "HS AppLock"
-                "DISABLE_ANTI_UNINSTALL", "SYSTEM_ACTION_GUARD" -> "Protected System Action"
-                "APP_INFO_GUARD" -> "App Info"
-                else -> "HS AppLock"
-            }
-            textSize = 13.0f
+            text = "Swipe left/right to switch lock type"
+            textSize = 12.0f
             setTextColor(COLOR_TEXT_SECONDARY)
             gravity = Gravity.CENTER
-            setPadding(0, 0, 0, 28)
+            setPadding(0, 0, 0, 20)
         }
 
-        // Crisp Hollow/Filled PIN Indicator Dots (matching Pixel lock screen)
+        // Fixed PIN Dot Indicator matching your saved PIN length
         pinDotsRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { bottomMargin = 36 }
+            ).apply { bottomMargin = 24 }
         }
-        rebuildPinDots(6)
+        rebuildPinDots(storage.getPinLength())
 
-        // Clean Pixel-style Numeric Keypad (1-9, Backspace, 0, Enter)
+        // Compact Pixel-style Numeric Keypad
         pinKeypadContainer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
@@ -278,8 +299,8 @@ class LockActivity : FragmentActivity() {
             listOf("⌫", "0", "→")
         )
 
-        val btnSizePx = (resources.displayMetrics.density * 78).toInt()
-        val btnMarginPx = (resources.displayMetrics.density * 11).toInt()
+        val btnSizePx = (resources.displayMetrics.density * 64).toInt()
+        val btnMarginPx = (resources.displayMetrics.density * 10).toInt()
 
         for (rowDigits in rows) {
             val rowLayout = LinearLayout(this).apply {
@@ -288,14 +309,14 @@ class LockActivity : FragmentActivity() {
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply { bottomMargin = (btnMarginPx * 1.5).toInt() }
+                ).apply { bottomMargin = (btnMarginPx * 1.3).toInt() }
             }
 
             for (digit in rowDigits) {
                 val isActionKey = digit == "⌫" || digit == "→"
                 val keyBtn = TextView(this).apply {
                     text = digit
-                    textSize = if (isActionKey) 22.0f else 28.0f
+                    textSize = if (isActionKey) 19.0f else 24.0f
                     typeface = Typeface.create("sans-serif", Typeface.NORMAL)
                     gravity = Gravity.CENTER
                     setTextColor(COLOR_TEXT_PRIMARY)
@@ -314,16 +335,16 @@ class LockActivity : FragmentActivity() {
             pinKeypadContainer.addView(rowLayout)
         }
 
-        // Large 310dp Pattern Grid matching the same clean light aesthetic
+        // Pattern Grid with matching light keypad circle shade
         val screenWidth = resources.displayMetrics.widthPixels
-        val patternSizePx = minOf((resources.displayMetrics.density * 310).toInt(), (screenWidth * 0.82).toInt())
+        val patternSizePx = minOf((resources.displayMetrics.density * 290).toInt(), (screenWidth * 0.78).toInt())
         patternView = PatternLockView(this).apply {
             compactMode = false
             visibility = View.GONE
             layoutParams = LinearLayout.LayoutParams(patternSizePx, patternSizePx).apply {
                 gravity = Gravity.CENTER
-                topMargin = 8
-                bottomMargin = 16
+                topMargin = 6
+                bottomMargin = 12
             }
             onPatternComplete = { drawn ->
                 if (storage.verifyCredential(LockStorage.AuthType.PATTERN, drawn)) {
@@ -336,36 +357,35 @@ class LockActivity : FragmentActivity() {
         }
 
         val bottomSpacer = View(this).apply {
-            layoutParams = LinearLayout.LayoutParams(1, 0, 1.0f)
+            layoutParams = LinearLayout.LayoutParams(1, 0, 0.75f)
         }
 
-        // Bottom Pill Row: Switch PIN / Pattern + Fingerprint pill (styled like "Emergency" pill)
         val bottomPillRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { bottomMargin = 20 }
+            ).apply { bottomMargin = 16 }
         }
 
         modeSwitchPill = TextView(this).apply {
-            text = "Use Pattern"
-            textSize = 14.0f
+            text = "Pattern"
+            textSize = 13.0f
             typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
             setTextColor(COLOR_TEXT_PRIMARY)
             gravity = Gravity.CENTER
-            setPadding(44, 20, 44, 20)
+            setPadding(38, 16, 38, 16)
             background = GradientDrawable().apply {
                 setColor(COLOR_PILL_BG)
-                cornerRadius = 60.0f
+                cornerRadius = 50.0f
             }
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply {
-                leftMargin = 10
-                rightMargin = 10
+                leftMargin = 8
+                rightMargin = 8
             }
             setOnClickListener {
                 if (isPatternMode) showPinMode() else showPatternMode()
@@ -374,14 +394,14 @@ class LockActivity : FragmentActivity() {
 
         val bioPill = TextView(this).apply {
             text = "Fingerprint"
-            textSize = 14.0f
+            textSize = 13.0f
             typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
             setTextColor(COLOR_TEXT_PRIMARY)
             gravity = Gravity.CENTER
-            setPadding(44, 20, 44, 20)
+            setPadding(38, 16, 38, 16)
             background = GradientDrawable().apply {
                 setColor(COLOR_PILL_BG)
-                cornerRadius = 60.0f
+                cornerRadius = 50.0f
             }
             visibility = if (storage.isFingerprintEnabled &&
                 targetPackage != "DISABLE_ANTI_UNINSTALL" &&
@@ -391,8 +411,8 @@ class LockActivity : FragmentActivity() {
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply {
-                leftMargin = 10
-                rightMargin = 10
+                leftMargin = 8
+                rightMargin = 8
             }
             setOnClickListener { launchBiometricPrompt() }
         }
@@ -414,8 +434,8 @@ class LockActivity : FragmentActivity() {
     private fun rebuildPinDots(totalDots: Int) {
         pinDotsRow.removeAllViews()
         dotViews.clear()
-        val dotSize = (resources.displayMetrics.density * 11).toInt()
-        val dotMargin = (resources.displayMetrics.density * 9).toInt()
+        val dotSize = (resources.displayMetrics.density * 10).toInt()
+        val dotMargin = (resources.displayMetrics.density * 8).toInt()
         for (i in 0 until totalDots) {
             val dot = View(this).apply {
                 background = GradientDrawable().apply {
@@ -434,12 +454,11 @@ class LockActivity : FragmentActivity() {
     }
 
     private fun updatePinDots() {
-        val count = enteredPin.length
-        if (count > dotViews.size) {
-            rebuildPinDots(count)
-        } else if (count <= 6 && dotViews.size != 6) {
-            rebuildPinDots(6)
+        val targetLen = storage.getPinLength()
+        if (dotViews.size != targetLen) {
+            rebuildPinDots(targetLen)
         }
+        val count = enteredPin.length
         for (i in dotViews.indices) {
             val filled = i < count
             dotViews[i].background = GradientDrawable().apply {
@@ -456,6 +475,7 @@ class LockActivity : FragmentActivity() {
 
     private fun onKeypadPress(key: String) {
         subtitleView.setTextColor(COLOR_TEXT_SECONDARY)
+        val maxLen = storage.getPinLength()
         when (key) {
             "⌫" -> {
                 if (enteredPin.isNotEmpty()) {
@@ -466,6 +486,7 @@ class LockActivity : FragmentActivity() {
                 val candidate = enteredPin.toString()
                 if (storage.verifyCredential(LockStorage.AuthType.PIN, candidate)) {
                     onAuthSuccess()
+                    return
                 } else {
                     enteredPin.clear()
                     subtitleView.text = "Wrong PIN. Try again"
@@ -473,13 +494,19 @@ class LockActivity : FragmentActivity() {
                 }
             }
             else -> {
-                if (enteredPin.length < 12) {
+                if (enteredPin.length < maxLen) {
                     enteredPin.append(key)
                     val candidate = enteredPin.toString()
-                    if (candidate.length >= 4 && storage.verifyCredential(LockStorage.AuthType.PIN, candidate)) {
-                        updatePinDots()
-                        onAuthSuccess()
-                        return
+                    if (candidate.length == maxLen) {
+                        if (storage.verifyCredential(LockStorage.AuthType.PIN, candidate)) {
+                            updatePinDots()
+                            onAuthSuccess()
+                            return
+                        } else {
+                            enteredPin.clear()
+                            subtitleView.text = "Wrong PIN. Try again"
+                            subtitleView.setTextColor(Color.parseColor("#DC2626"))
+                        }
                     }
                 }
             }
@@ -492,23 +519,24 @@ class LockActivity : FragmentActivity() {
         enteredPin.clear()
         updatePinDots()
         titleView.text = "Enter PIN"
-        subtitleView.text = "HS AppLock"
+        subtitleView.text = "Swipe left/right for Pattern"
         subtitleView.setTextColor(COLOR_TEXT_SECONDARY)
         pinDotsRow.visibility = View.VISIBLE
         pinKeypadContainer.visibility = View.VISIBLE
         patternView.visibility = View.GONE
-        modeSwitchPill.text = "Use Pattern"
+        modeSwitchPill.text = "Pattern"
     }
 
     private fun showPatternMode() {
         isPatternMode = true
         titleView.text = "Draw Pattern"
-        subtitleView.text = "HS AppLock"
+        subtitleView.text = "Swipe left/right for PIN"
         subtitleView.setTextColor(COLOR_TEXT_SECONDARY)
         pinDotsRow.visibility = View.GONE
         pinKeypadContainer.visibility = View.GONE
         patternView.visibility = View.VISIBLE
-        modeSwitchPill.text = "Use PIN"
+        patternView.invalidate()
+        modeSwitchPill.text = "PIN"
     }
 
     private fun goHomeAndFinish() {
@@ -522,7 +550,7 @@ class LockActivity : FragmentActivity() {
 
     private fun launchBiometricPrompt() {
         val canAuth = BiometricManager.from(this)
-            .canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.DEVICE_CREDENTIAL)
+            .canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG)
         if (canAuth != BiometricManager.BIOMETRIC_SUCCESS) return
 
         val executor = ContextCompat.getMainExecutor(this)
@@ -532,10 +560,12 @@ class LockActivity : FragmentActivity() {
             }
         })
 
+        // BIOMETRIC_STRONG only — prevents the Android system PIN sheet from covering your custom keypad
         val info = BiometricPrompt.PromptInfo.Builder()
             .setTitle("HS AppLock")
-            .setSubtitle("Authenticate to continue")
-            .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.DEVICE_CREDENTIAL)
+            .setSubtitle("Touch the fingerprint sensor")
+            .setNegativeButtonText("Use PIN")
+            .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG)
             .build()
 
         prompt.authenticate(info)
