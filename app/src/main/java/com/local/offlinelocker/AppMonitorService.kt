@@ -16,6 +16,7 @@ class AppMonitorService : AccessibilityService() {
     private var lastPromptTimeMs: Long = 0L
     private var lastAppInfoExitMs: Long = 0L
     private var wasInAppInfo: Boolean = false
+    private val exitCooldownByPkg = mutableMapOf<String, Long>()
 
     private val screenReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -27,6 +28,7 @@ class AppMonitorService : AccessibilityService() {
                 activeForegroundPkg = null
                 wasInAppInfo = false
                 lastPromptedKey = null
+                exitCooldownByPkg.clear()
             }
         }
     }
@@ -50,7 +52,6 @@ class AppMonitorService : AccessibilityService() {
             "com.oneplus.security"
         )
 
-        // Overlay / Share / Keyboard packages that appear ON TOP of an open app (like Instagram Share/Comment)
         private val TRANSIENT_OVERLAY_PACKAGES = setOf(
             "android",
             "com.android.intentresolver",
@@ -113,20 +114,21 @@ class AppMonitorService : AccessibilityService() {
 
         val rootPkg = rootInActiveWindow?.packageName?.toString()
         val eventPkg = event.packageName?.toString()
+
+        // Prefer rootInActiveWindow so late background events from an app the user just exited are ignored
         val pkg = when {
             !rootPkg.isNullOrEmpty() && !TRANSIENT_OVERLAY_PACKAGES.contains(rootPkg) -> rootPkg
             !eventPkg.isNullOrEmpty() -> eventPkg
             else -> return
         }
 
-        // Ignore our own LockActivity and transient share/comment/keyboard sheets
         if (pkg == packageName || pkg == "com.local.offlinelocker" || TRANSIENT_OVERLAY_PACKAGES.contains(pkg)) {
             return
         }
 
         val className = event.className?.toString().orEmpty()
 
-        // Clear all active sessions immediately when Recents / Overview is opened
+        // Recents / Overview clears all active unlock sessions
         val isRecentsScreen = pkg == "com.android.systemui" &&
             (className.contains("Recents", ignoreCase = true) ||
                 className.contains("Overview", ignoreCase = true) ||
@@ -141,15 +143,19 @@ class AppMonitorService : AccessibilityService() {
 
         if (pkg == "com.android.systemui") return
 
-        // Switched away from previous foreground app to Home Launcher or another app
+        // User switched away from `prev` to Home Launcher or another app
         val prev = activeForegroundPkg
         if (prev != null && prev != pkg) {
             if (storage.isInstantLockEnabled) {
                 storage.clearAppUnlocked(prev)
-                if (INSTALLER_PACKAGES.contains(prev)) {
+                // Add a 1.2s exit cooldown so trailing window events from the closing app don't re-lock on exit
+                exitCooldownByPkg[prev] = System.currentTimeMillis()
+
+                // Only clear SYSTEM_ACTION_GUARD when leaving BOTH installer and settings completely
+                if (!INSTALLER_PACKAGES.contains(pkg) && !SETTINGS_PACKAGES.contains(pkg)) {
                     storage.clearAppUnlocked("SYSTEM_ACTION_GUARD")
                 }
-                if (SETTINGS_PACKAGES.contains(prev)) {
+                if (SETTINGS_PACKAGES.contains(prev) && !SETTINGS_PACKAGES.contains(pkg)) {
                     storage.clearAppUnlocked("APP_INFO_GUARD")
                     storage.clearAppUnlocked("SETTINGS_ALL")
                 }
@@ -164,7 +170,7 @@ class AppMonitorService : AccessibilityService() {
             ""
         }
 
-        // 1. Uninstall & Force Stop Blocker (single guard key so it asks once and never double-prompts)
+        // 1. Uninstall & Force Stop Blocker (stays unlocked across multi-step installer dialogs until exit)
         val isUninstallOrForceStopUi = INSTALLER_PACKAGES.contains(pkg) ||
             className.contains("Uninstall", ignoreCase = true) ||
             screenText.contains("do you want to uninstall", ignoreCase = true) ||
@@ -184,11 +190,9 @@ class AppMonitorService : AccessibilityService() {
                 launchGuard(key = guardKey, targetPackage = guardKey, isFakeCrash = false)
             }
             return
-        } else if (!isSystemOrInstaller) {
-            storage.clearAppUnlocked("SYSTEM_ACTION_GUARD")
         }
 
-        // 2. Full-Phone App Info Lock (locks on every entry; resets cleanly on exit without re-prompting)
+        // 2. Full-Phone App Info Lock
         val isAppInfoScreen = !isUninstallOrForceStopUi && SETTINGS_PACKAGES.contains(pkg) &&
             (APP_INFO_CLASS_HINTS.any { className.contains(it, ignoreCase = true) } ||
                 screenText.contains("app info", ignoreCase = true) ||
@@ -199,7 +203,6 @@ class AppMonitorService : AccessibilityService() {
                         screenText.contains("mobile data", ignoreCase = true))))
 
         if (wasInAppInfo && !isAppInfoScreen) {
-            // User just exited App Info -> clear its unlock so next entry locks, and set brief exit cooldown
             wasInAppInfo = false
             storage.clearAppUnlocked("APP_INFO_GUARD")
             lastAppInfoExitMs = System.currentTimeMillis()
@@ -207,7 +210,7 @@ class AppMonitorService : AccessibilityService() {
 
         if (storage.isAppInfoLockEnabled && isAppInfoScreen) {
             wasInAppInfo = true
-            if (System.currentTimeMillis() - lastAppInfoExitMs < 600L) return
+            if (System.currentTimeMillis() - lastAppInfoExitMs < 700L) return
             val guardKey = "APP_INFO_GUARD"
             if (!storage.isAppUnlocked(guardKey)) {
                 launchGuard(key = guardKey, targetPackage = guardKey, isFakeCrash = false)
@@ -228,8 +231,11 @@ class AppMonitorService : AccessibilityService() {
             return
         }
 
-        // 4. Locked Apps Check
+        // 4. Locked Apps Check (skip if the app just exited within the last 1.2s)
         if (lockedApps.contains(pkg)) {
+            val exitedAt = exitCooldownByPkg[pkg] ?: 0L
+            if (System.currentTimeMillis() - exitedAt < 1200L) return
+
             val guardKey = "APP_$pkg"
             if (!storage.isAppUnlocked(guardKey)) {
                 val isFakeCrash = storage.getFakeCrashApps().contains(pkg)
