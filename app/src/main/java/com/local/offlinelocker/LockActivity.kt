@@ -71,7 +71,11 @@ class LockActivity : FragmentActivity() {
         } else {
             fakeCrashContainer.visibility = View.GONE
             authContainer.visibility = View.VISIBLE
-            showPinMode()
+            if (storage.hasCredential(LockStorage.AuthType.PATTERN) && !storage.hasCredential(LockStorage.AuthType.PIN)) {
+    showPatternMode()
+} else {
+    showPinMode()
+}
             if (storage.isFingerprintEnabled &&
                 targetPackage != "DISABLE_ANTI_UNINSTALL" &&
                 targetPackage != "SYSTEM_ACTION_GUARD"
@@ -156,7 +160,11 @@ class LockActivity : FragmentActivity() {
             secretTriggered = true
             fakeCrashContainer.visibility = View.GONE
             authContainer.visibility = View.VISIBLE
-            showPinMode()
+           if (storage.hasCredential(LockStorage.AuthType.PATTERN) && !storage.hasCredential(LockStorage.AuthType.PIN)) {
+    showPatternMode()
+} else {
+    showPinMode()
+}
             if (storage.isFingerprintEnabled) launchBiometricPrompt()
         }
 
