@@ -982,8 +982,6 @@ class MainActivity : FragmentActivity() {
 
         authCard.addView(pinInput)
         authCard.addView(savePinBtn)
-        authCard.addView(passInput)
-        authCard.addView(savePassBtn)
         authCard.addView(patternPrompt)
         authCard.addView(patternView)
         authCard.addView(hidePatternSwitch)
