@@ -1,10 +1,11 @@
 package com.local.offlinelocker
+
 import android.accessibilityservice.AccessibilityServiceInfo
 import android.app.AlertDialog
-import android.app.admin.DevicePolicyManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.Drawable
@@ -35,11 +36,8 @@ import kotlin.math.abs
 class MainActivity : FragmentActivity() {
 
     private lateinit var storage: LockStorage
-    private lateinit var dpm: DevicePolicyManager
-    private lateinit var adminComponent: ComponentName
     private lateinit var swipeDetector: GestureDetector
 
-    private lateinit var topLockBtn: ImageButton
     private lateinit var tabSettingsText: TextView
     private lateinit var tabLockedText: TextView
     private lateinit var tabNetText: TextView
@@ -61,11 +59,8 @@ class MainActivity : FragmentActivity() {
 
     private lateinit var selfLockSwitchRef: Switch
     private lateinit var instantLockSwitchRef: Switch
-
-
     private lateinit var bioSwitchRef: Switch
     private lateinit var masterPauseSwitchRef: Switch
-    private lateinit var antiUninstallSwitchRef: Switch
 
     private enum class Page { SETTINGS, LOCKED_APP, NET_GUARDED, ALL_APPS }
     private var currentPage = Page.LOCKED_APP
@@ -79,8 +74,6 @@ class MainActivity : FragmentActivity() {
 
     companion object {
         private const val REQ_VPN_PERMISSION = 101
-        private const val REQ_DEVICE_ADMIN = 102
-        private const val REQ_DISABLE_UNINSTALL_AUTH = 103
         private const val REQ_SELF_LOCK_AUTH = 104
 
         private val COLOR_PRIMARY_BLUE = Color.parseColor("#0277BD")
@@ -103,8 +96,6 @@ class MainActivity : FragmentActivity() {
         window.statusBarColor = COLOR_DARK_BLUE
 
         storage = LockStorage(this)
-        dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
-        adminComponent = ComponentName(this, VaultDeviceAdminReceiver::class.java)
 
         swipeDetector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
             override fun onFling(
@@ -147,20 +138,7 @@ class MainActivity : FragmentActivity() {
             }
         })
 
-        allLaunchableApps = packageManager.getInstalledApplications(0)
-            .filter {
-                it.packageName != packageName &&
-                    (packageManager.getLaunchIntentForPackage(it.packageName) != null ||
-                        it.packageName == "com.android.settings")
-            }
-            .map {
-                AppEntry(
-                    name = packageManager.getApplicationLabel(it).toString(),
-                    packageName = it.packageName,
-                    icon = packageManager.getApplicationIcon(it)
-                )
-            }
-            .sortedBy { it.name.lowercase() }
+        allLaunchableApps = loadAllAppsWithPinnedSystemTools()
 
         val appVersion = try {
             packageManager.getPackageInfo(packageName, 0).versionName ?: "1.0"
@@ -206,21 +184,8 @@ class MainActivity : FragmentActivity() {
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f)
         }
 
-        topLockBtn = ImageButton(this).apply {
-            setImageResource(android.R.drawable.ic_lock_idle_lock)
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.OVAL
-                setColor(Color.parseColor("#26FFFFFF"))
-            }
-            setPadding(20, 20, 20, 20)
-            layoutParams = LinearLayout.LayoutParams(96, 96)
-            contentDescription = "Anti-Uninstall Restriction"
-            setOnClickListener { toggleAntiUninstallRestriction() }
-        }
-
         appBar.addView(shieldIcon)
         appBar.addView(appTitle)
-        appBar.addView(topLockBtn)
 
         val tabBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -420,10 +385,59 @@ class MainActivity : FragmentActivity() {
         rootFrame.addView(popupBanner)
         setContentView(rootFrame)
 
-        syncTopLockIconUI()
         updateTabCounts()
         switchToPage(Page.LOCKED_APP)
         enforceMasterLockIfNeeded()
+    }
+
+    private fun loadAllAppsWithPinnedSystemTools(): List<AppEntry> {
+        val pinnedPackages = listOf(
+            "com.android.settings",
+            "com.google.android.packageinstaller",
+            "com.android.packageinstaller",
+            "com.miui.packageinstaller",
+            "com.samsung.android.packageinstaller",
+            "com.coloros.packageinstaller",
+            "com.oplus.apprecover"
+        )
+
+        val entriesByPkg = linkedMapOf<String, AppEntry>()
+
+        // Explicitly resolve pinned Settings & Package Installer packages even if system-hidden
+        for (pinPkg in pinnedPackages) {
+            try {
+                val info = packageManager.getApplicationInfo(pinPkg, PackageManager.MATCH_SYSTEM_ONLY)
+                val rawLabel = packageManager.getApplicationLabel(info).toString()
+                val label = if (pinPkg.contains("packageinstaller", ignoreCase = true) || pinPkg == "com.oplus.apprecover") {
+                    "Package Installer ($rawLabel)"
+                } else {
+                    rawLabel
+                }
+                entriesByPkg[pinPkg] = AppEntry(
+                    name = label,
+                    packageName = pinPkg,
+                    icon = packageManager.getApplicationIcon(info)
+                )
+            } catch (_: Exception) {
+            }
+        }
+
+        val regularApps = packageManager.getInstalledApplications(PackageManager.GET_META_DATA)
+            .filter {
+                it.packageName != packageName &&
+                    !entriesByPkg.containsKey(it.packageName) &&
+                    packageManager.getLaunchIntentForPackage(it.packageName) != null
+            }
+            .map {
+                AppEntry(
+                    name = packageManager.getApplicationLabel(it).toString(),
+                    packageName = it.packageName,
+                    icon = packageManager.getApplicationIcon(it)
+                )
+            }
+            .sortedBy { it.name.lowercase() }
+
+        return entriesByPkg.values.toList() + regularApps
     }
 
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
@@ -435,26 +449,28 @@ class MainActivity : FragmentActivity() {
         super.onResume()
         enforceMasterLockIfNeeded()
         checkMandatoryPermissions()
-        syncTopLockIconUI()
         updateTabCounts()
-        if (::antiUninstallSwitchRef.isInitialized) {
-            antiUninstallSwitchRef.isChecked = isAntiUninstallActive()
-        }
         if (::bioSwitchRef.isInitialized) {
             bioSwitchRef.isChecked = storage.isFingerprintEnabled
         }
     }
 
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        if (storage.isInstantLockEnabled && !isPromptingSelfLock) {
+            isSelfUnlocked = false
+        }
+    }
+
     override fun onStop() {
         super.onStop()
-        if (!isChangingConfigurations) {
+        if (!isChangingConfigurations && !isPromptingSelfLock) {
             isSelfUnlocked = false
         }
     }
 
     private fun enforceMasterLockIfNeeded() {
         val hasAnyCredential = storage.hasCredential(LockStorage.AuthType.PIN) ||
-            
             storage.hasCredential(LockStorage.AuthType.PATTERN)
 
         if (storage.isSelfLockEnabled && hasAnyCredential && !isSelfUnlocked && !isPromptingSelfLock) {
@@ -477,45 +493,6 @@ class MainActivity : FragmentActivity() {
             ).size
         tabLockedText.text = "LOCKED ($lockedCount)"
         tabNetText.text = "NET GUARD ($netAndCrashCount)"
-    }
-
-    private fun isAntiUninstallActive(): Boolean {
-        return storage.isAntiUninstallEnabled && dpm.isAdminActive(adminComponent)
-    }
-
-    private fun syncTopLockIconUI() {
-        val active = isAntiUninstallActive()
-        topLockBtn.setColorFilter(if (active) COLOR_ACCENT_YELLOW else Color.WHITE)
-        topLockBtn.background = GradientDrawable().apply {
-            shape = GradientDrawable.OVAL
-            setColor(if (active) Color.parseColor("#40FDD835") else Color.parseColor("#26FFFFFF"))
-            if (active) setStroke(3, COLOR_ACCENT_YELLOW)
-        }
-    }
-
-    private fun toggleAntiUninstallRestriction() {
-        if (!dpm.isAdminActive(adminComponent)) {
-            storage.isAntiUninstallEnabled = true
-            val intent = Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN).apply {
-                putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, adminComponent)
-                putExtra(
-                    DevicePolicyManager.EXTRA_ADD_EXPLANATION,
-                    "Protects HS AppLock and asks for your password before any app can be uninstalled."
-                )
-            }
-            startActivityForResult(intent, REQ_DEVICE_ADMIN)
-        } else if (!storage.isAntiUninstallEnabled) {
-            storage.isAntiUninstallEnabled = true
-            syncTopLockIconUI()
-            if (::antiUninstallSwitchRef.isInitialized) antiUninstallSwitchRef.isChecked = true
-            showBanner("Uninstall Blocker: ON", "#0277BD")
-        } else {
-            if (::antiUninstallSwitchRef.isInitialized) antiUninstallSwitchRef.isChecked = true
-            val verifyIntent = Intent(this, LockActivity::class.java).apply {
-                putExtra("TARGET_PACKAGE", "DISABLE_ANTI_UNINSTALL")
-            }
-            startActivityForResult(verifyIntent, REQ_DISABLE_UNINSTALL_AUTH)
-        }
     }
 
     private fun switchToPage(page: Page) {
@@ -542,7 +519,7 @@ class MainActivity : FragmentActivity() {
             fabAddBtn.visibility = View.VISIBLE
             fabAddBtn.rotation = if (page == Page.ALL_APPS) 45.0f else 0.0f
             searchBox.hint = when (page) {
-                Page.ALL_APPS -> "Search all ${allLaunchableApps.size} installed apps..."
+                Page.ALL_APPS -> "Search all ${allLaunchableApps.size} apps..."
                 Page.NET_GUARDED -> "Search net-guarded & crash apps..."
                 else -> "Search locked apps..."
             }
@@ -830,7 +807,7 @@ class MainActivity : FragmentActivity() {
         }
 
         instantLockSwitchRef = Switch(this).apply {
-            text = "\nInstant Lock (On Recents, Exit, or Background Close)"
+            text = "\nInstant Lock (On Home, Recents, Exit, or Screen Off)"
             textSize = 14.0f
             setTextColor(COLOR_TEXT_DARK)
             isChecked = storage.isInstantLockEnabled
@@ -840,8 +817,6 @@ class MainActivity : FragmentActivity() {
                 showBanner(if (checked) "Instant Lock: ON" else "Instant Lock: OFF")
             }
         }
-
-     
 
         masterPauseSwitchRef = Switch(this).apply {
             text = "\nTemporarily Pause All App Locks"
@@ -858,37 +833,27 @@ class MainActivity : FragmentActivity() {
             }
         }
 
-        antiUninstallSwitchRef = Switch(this).apply {
-            text = "\nUninstall Blocker (Protect All Apps & AppLock)"
-            textSize = 14.0f
-            setTextColor(COLOR_TEXT_DARK)
-            isChecked = isAntiUninstallActive()
-            setOnClickListener { toggleAntiUninstallRestriction() }
-        }
-
         bioSwitchRef = Switch(this).apply {
-            text = "\nFingerprint / Face Unlock / System Lock"
+            text = "\nFingerprint Unlock"
             textSize = 14.0f
             setTextColor(COLOR_TEXT_DARK)
             isChecked = storage.isFingerprintEnabled
             setOnCheckedChangeListener { _, checked ->
                 storage.isFingerprintEnabled = checked
-                showBanner(if (checked) "Fingerprint / Face Unlock: ON" else "Fingerprint / Face Unlock: OFF")
+                showBanner(if (checked) "Fingerprint Unlock: ON" else "Fingerprint Unlock: OFF")
             }
         }
 
         controlCard.addView(selfLockSwitchRef)
         controlCard.addView(instantLockSwitchRef)
-       
         controlCard.addView(masterPauseSwitchRef)
-        controlCard.addView(antiUninstallSwitchRef)
         controlCard.addView(bioSwitchRef)
 
         val authCard = makeCard()
-        authCard.addView(makeSectionTitle("AUTHENTICATION CREDENTIALS"))
+        authCard.addView(makeSectionTitle("PIN & PATTERN SETUP"))
 
         val pinInput = EditText(this).apply {
-            hint = "Set 4+ Digit PIN (${if (storage.hasCredential(LockStorage.AuthType.PIN)) "ACTIVE" else "Not Set"})"
+            hint = "Set 4+ Digit PIN (${if (storage.hasCredential(LockStorage.AuthType.PIN)) "ACTIVE - ${storage.getPinLength()} digits" else "Not Set"})"
             setTextColor(COLOR_TEXT_DARK)
             setHintTextColor(COLOR_TEXT_MUTED)
             inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD
@@ -902,14 +867,12 @@ class MainActivity : FragmentActivity() {
                 if (v.length >= 4) {
                     storage.setCredentialForType(LockStorage.AuthType.PIN, v)
                     pinInput.text.clear()
-                    pinInput.hint = "Set 4+ Digit PIN (ACTIVE)"
+                    pinInput.hint = "Set 4+ Digit PIN (ACTIVE - ${v.length} digits)"
                     showBanner("PIN Saved!")
                 } else showBanner("Enter at least 4 digits", "#B91C1C")
             }
         }
 
-       
-     
         var firstPattern: String? = null
         val patternPrompt = TextView(this).apply {
             text = "\nDraw 3x3 Pattern (${if (storage.hasCredential(LockStorage.AuthType.PATTERN)) "ACTIVE" else "Not Set"}):"
@@ -1127,22 +1090,6 @@ class MainActivity : FragmentActivity() {
                 action = AppFirewallVpnService.ACTION_UPDATE
             })
             showBanner("Net Guard Firewall Active")
-        } else if (requestCode == REQ_DEVICE_ADMIN) {
-            syncTopLockIconUI()
-            if (::antiUninstallSwitchRef.isInitialized) {
-                antiUninstallSwitchRef.isChecked = isAntiUninstallActive()
-            }
-            if (isAntiUninstallActive()) {
-                showBanner("Uninstall Blocker Enabled!")
-            }
-        } else if (requestCode == REQ_DISABLE_UNINSTALL_AUTH && resultCode == RESULT_OK) {
-            storage.isAntiUninstallEnabled = false
-            dpm.removeActiveAdmin(adminComponent)
-            syncTopLockIconUI()
-            if (::antiUninstallSwitchRef.isInitialized) {
-                antiUninstallSwitchRef.isChecked = false
-            }
-            showBanner("Uninstall Blocker Disabled", "#64748B")
         }
     }
 
